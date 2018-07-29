@@ -53,7 +53,7 @@ void computeNMChannels(Mat src, vector* _channels/* Mat */)
 }
 
 // The classifier must return probability measure for the region --> Stage-1
-double evalNM1(ERClassifierNM erc, const ERStat& stat)
+float evalNM1(ERClassifierNM* erc, const ERStat stat)
 {
 	float sample_[4] = {(float)(stat.rect.width)/(stat.rect.height), // aspect ratio
                      sqrt((float)(stat.area))/stat.perimeter, // compactness
@@ -63,8 +63,7 @@ double evalNM1(ERClassifierNM erc, const ERStat& stat)
 	create(1, 4, 5/*CV_32F1*/);
     leftshift_op(&sample, 4, sample_);
 	
-	float votes = predict_ml(erc.boost, sample, noArray(), PREDICT_SUM | RAW_OUTPUT);
-	// PREDICT_SUM=(1<<8), RAW_OUTPUT=1.
+	float votes = predict_ml(&(erc->boost->impl), sample, 257);
 
 	// Logistic Correction returns a probability value (in the range(0,1))
 	return (double)1-(double)1/(1+exp(-2*votes));
@@ -82,7 +81,7 @@ double evalNM2(ERClassifierNM erc, const ERStat stat)
     create(&sample, 1, 7, sample_);
     leftshift_op(&sample, 7, sample_);
 
-	float votes = predict_ml(erc.boost, sample, noArray(), PREDICT_SUM | RAW_OUTPUT);
+	float votes = predict_ml(erc.boost, sample, 257);
 
 	// Logistic Correction returns a probability value (in the range(0,1))
 	return (double)1-(double)1/(1+exp(-2*votes));
@@ -100,8 +99,6 @@ ERClassifierNM* loadclassifierNM(ERClassifierNM* erc, const char* filename)
 	if(f != NULL)
 	{
 		erc->boost = load_ml(filename);
-		if(empty_ml(erc->boost))
-			fatal("Could not read the Default classifier\n");
 		return erc;
 	}
 	else
@@ -669,10 +666,10 @@ void er_merge(ERFilterNM* filter, ERStat* parent, ERStat* child)
     // before saving calculate P(child|character) and filter if possible
     if(filter->classifier != NULL)
         if(filter->stage == 1)
-    	   child->probability = evalNM1(*(filter->classifier), *child);
+    	   child->probability = evalNM1(filter->classifier, *child);
 
         else
-            child->probability = evalNM2(*(filter->classifier), *child);
+            child->probability = evalNM2(filter->classifier, *child);
 
     if((((filter->classifier!=NULL)?(child->probability >= filter->minProbability):true)||(filter->nonMaxSuppression)) &&
          ((child->area >= (filter->minArea*filter->region_mask.rows*filter->region_mask.cols)) &&
@@ -864,9 +861,9 @@ ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *paren
     if ((filter->classifier != NULL) && (stat->parent != NULL) )
     {
         if(filter->stage == 1)
-            stat->probability = evalNM1(*(filter->classifier), *stat);
+            stat->probability = evalNM1(filter->classifier, *stat);
         else
-            stat->probability = evalNM2(*(filter->classifier), *stat);
+            stat->probability = evalNM2(filter->classifier, *stat);
     }
 
     if((((filter->classifier != NULL)?(stat->probability >= filter->minProbability):true) &&
@@ -1061,36 +1058,10 @@ bool isValidSequence(region_sequence sequence1, region_sequence sequence2)
     return false;
 }
 
-
-bool haveCommonRegion_triplet(region_triplet t1, region_triplet t2)
-{
-    if( (t1.a.x ==t2.a.x && t1.a.y == t2.a.y) || (t1.a.x ==t2.b.x && t1.a.y == t2.b.y) || (t1.a.x ==t2.c.x && t1.a.y == t2.c.y) ||
-        (t1.b.x ==t2.a.x && t1.b.y == t2.a.y) || (t1.b.x ==t2.b.x && t1.b.y == t2.b.y) || (t1.b.x ==t2.c.x && t1.b.y == t2.c.y) ||
-        (t1.c.x ==t2.a.x && t1.c.y == t2.a.y) || (t1.c.x ==t2.b.x && t1.c.y == t2.b.y) || (t1.c.x ==t2.b.x && t1.c.y == t2.b.y) )
-        return true;
-
-    retur false;
-}
-
-// Check if two sequences share a region in common
-bool haveCommonRegion(region_sequence sequence1, region_sequence sequence2)
-{
-    for (size_t i=0; i < vector_size(sequence2.triplets); i++)
-    {
-        for (size_t j=0; j < vector_size(sequence1.triplets); j++)
-        {
-            if (haveCommonRegion_triplet(*(region_triplet*)vector_get(sequence2.triplets, i), *(region_triplet*)vector_get(sequence1.triplets, j)));
-                return true;
-        }
-    }
-
-    return false;
-}
-
 Rect boundingRect(vector* v/* Point */)
 {
     Mat m = getMatfromVector(v);
-    return depth(m) < cv_8U ? maskBoundingRect(&m) : pointSetBoundingRect(m);
+    return depth(m) <= 0 ? maskBoundingRect(&m) : pointSetBoundingRect(m);
 }
 
 int norm(int x, int y)

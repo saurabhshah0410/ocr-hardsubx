@@ -1,5 +1,7 @@
 #include <stdio.h>
-/** Move reader position forward: */
+
+#define CV_DTREE_CAT_DIR(idx,subset) \
+        (2*((subset[(idx)>>5]&(1 << ((idx) & 31)))==0)-1)
 #define CV_NEXT_SEQ_ELEM(elem_size, reader)                 \
 {                                                             \
     if( ((reader).ptr += (elem_size)) >= (reader).block_max ) \
@@ -1859,11 +1861,29 @@ typedef struct Boost
     DTreesImplForBoost impl;
 } Boost;
 
-/** Creates the empty model.
-    Use StatModel::train to train the model, Algorithm::load\<Boost\>(filename) to load the pre-trained model. */
-static Boost* createBoost()
+bool haveCommonRegion_triplet(region_triplet t1, region_triplet t2)
 {
+    if( (t1.a.x ==t2.a.x && t1.a.y == t2.a.y) || (t1.a.x ==t2.b.x && t1.a.y == t2.b.y) || (t1.a.x ==t2.c.x && t1.a.y == t2.c.y) ||
+        (t1.b.x ==t2.a.x && t1.b.y == t2.a.y) || (t1.b.x ==t2.b.x && t1.b.y == t2.b.y) || (t1.b.x ==t2.c.x && t1.b.y == t2.c.y) ||
+        (t1.c.x ==t2.a.x && t1.c.y == t2.a.y) || (t1.c.x ==t2.b.x && t1.c.y == t2.b.y) || (t1.c.x ==t2.b.x && t1.c.y == t2.b.y) )
+        return true;
 
+    retur false;
+}
+
+// Check if two sequences share a region in common
+bool haveCommonRegion(region_sequence sequence1, region_sequence sequence2)
+{
+    for (size_t i=0; i < vector_size(sequence2.triplets); i++)
+    {
+        for (size_t j=0; j < vector_size(sequence1.triplets); j++)
+        {
+            if (haveCommonRegion_triplet(*(region_triplet*)vector_get(sequence2.triplets, i), *(region_triplet*)vector_get(sequence1.triplets, j)));
+                return true;
+        }
+    }
+
+    return false;
 }
 
 CvFileNode* cvGetFileNodeByName(const CvFileStorage* fs, const CvFileNode* _map_node, const char* str)
@@ -1873,7 +1893,7 @@ CvFileNode* cvGetFileNodeByName(const CvFileStorage* fs, const CvFileNode* _map_
     unsigned hashval = 0;
     int k = 0, attempts = 1;
 
-    if( !fs )
+    if(!fs)
         return 0;
 
     for(i = 0; str[i] != '\0'; i++)
@@ -2387,6 +2407,21 @@ void readParams_(DTreesImplForBoost* impl, const FileNode fn)
     impl->params = params0;
 }
 
+void getNextIterator_(FileNodeIterator* it)
+{
+    if(it->remaining > 0)
+    {
+        if(it->reader.seq)
+        {
+            if(((it->reader).ptr += (((Seq*)it->reader.seq)->elem_size)) >= (it->reader).block_max)
+            {
+                ChangeSeqBlock((SeqReader*)&(it->reader), 1);
+            }
+        }
+        it->remaining--;
+    }
+}
+
 void readParams(DTreesImplForBoost* impl, const FileNode fn)
 {
     readParams_(impl, fn);
@@ -2394,6 +2429,115 @@ void readParams(DTreesImplForBoost* impl, const FileNode fn)
     // check for old layout
     impl->bparams.boostType  = 1;
     impl->bparams.weightTrimRate = 0.0;
+}
+
+void read_double(FileNode node, double* value, double default_value)
+{
+    *value = !node.node ? default_value :
+        CV_NODE_IS_INT(node.node->tag) ? (float)node.node->data.i : (float)(node.node->data.f);
+}
+
+double double_op(const FileNode node)
+{
+    *value = !node.node ? default_value :
+        CV_NODE_IS_INT(node.node->tag) ? (double)node.node->data.i : (double)(node.node->data.f);
+}
+
+void read_float(FileNode node, float* value, float default_value)
+{
+    *value = !node.node ? default_value :
+        CV_NODE_IS_INT(node.node->tag) ? (float)node.node->data.i : (float)(node.node->data.f);
+}
+
+float float_op(const FileNode fn)
+{
+    float* value = malloc(sizeof(float));
+    read_float(fn, value, 0.f);
+    return *value;
+}
+
+int readSplit(DTreesImplForBoost* impl, const FileNode fn)
+{
+    Split split;
+
+    int vi = int_op(fileNode(fn, "var"));
+    vi = *(int*)vector_get(impl->varMapping, vi); // convert to varIdx if needed
+    split.varIdx = vi;
+
+    FileNode cmpNode = FileNode_op(fn, "le");
+    if(!cmpNode.node)
+    {
+        cmpNode = FileNode_op(fn, "gt");
+        split.inversed = true;
+    }
+    split.c = float_op(cmpNode);
+
+    split.quality = float_op(fn, "quality");
+    vector_add(impl->splits, &split);
+
+    return vector_size(impl->splits)-1;
+}
+
+int readNode(DTreesImplForBoost* impl, const FileNode fn)
+{
+    Node node;
+    node.value = double_op(FileNode_op(fn, "value"));
+
+    if(impl->_isClassifier)
+        node.classIdx = int_op(FileNode_op(fn, "norm_class_idx"));
+
+    FileNode sfn = FileNode_op(fn, "splits");
+    if(sfn.node != 0)
+    {
+        int i, n = sfn.node->data.seq->total, prevsplit = -1;
+        FileNodeIterator it = begin(sfn);
+
+        for(i = 0; i < n; i++, getNextIterator_(&it))
+        {
+            int splitidx = readSplit(impl, fileNode(it.fs, (const CvFileNode*)(const void*)it.reader.ptr));
+            if(splitidx < 0)
+                break;
+            if(prevsplit < 0)
+                node.split = splitidx;
+            else
+                ((Split*)vector_get(impl->splits, prevsplit))->next = splitidx;
+            prevsplit = splitidx;
+        }
+    }
+}
+
+int readTree(DTreesImplForBoost* impl, const FileNode fn)
+{
+    int i, n = (size_t)fn.node->data.seq->total, root = -1, pidx = -1;
+    FileNodeIterator it = begin(fn);
+
+    for(i = 0; i < n; i++, getNextIterator_(&t))
+    {
+        int nidx = readNode(impl, fileNode(it.fs, (const CvFileNode*)(const void*)it.reader.ptr));
+        if(nidx < 0)
+            break;
+        Node* node = vector_get(impl->nodes, nidx);
+        node->parent = pidx;
+        if(pidx < 0)
+            root = nidx;
+        else
+        {
+            Node* parent = vector_get(impl->nodes, pidx);
+            if(parent->left < 0)
+                parent->left = nidx;
+            else
+                parent->right = nidx;
+        }
+        if(node->split >= 0)
+            pidx = nidx;
+        else
+        {
+            while(pidx >= 0 && ((Node*)vector_get(impl->nodes, pidx))->right >= 0)
+                pidx = ((Node*)vector_get(impl->nodes, pidx))->parent;
+        }
+    }
+    vector_add(impl->roots, &root);
+    return root;
 }
 
 void read_ml(Boost* obj, const FileNode fn)
@@ -2405,14 +2549,11 @@ void read_ml(Boost* obj, const FileNode fn)
     FileNode trees_node = FileNode_op(fn, "trees");
     FileNodeIterator it = begin(trees_node);
 
-}
-
-Boost* load_ml(char* filename)
-{
-    FileStorage fs = fileStorage(filename, READ);
-    FileNode fn = getFirstTopLevelNode(fs);
-    Boost* obj = createBoost();
-    read_ml(obj, fn);
+    for(int treeidx = 0; treeidx < ntrees; treeidx++, getNextIterator_(&it))
+    {
+        FileNode nfn = FileNode_op(fileNode(it.fs, (const CvFileNode*)(const void*)it.reader.ptr), "nodes");
+        readTree(&(obj->impl), nfn);
+    }
 }
 
 AutoBuffer init_AutoBuffer(size_t _size)
@@ -2930,6 +3071,22 @@ inline Mat createusingPoint(vector* v, bool copyData /* Default false */)
     return m;
 }
 
+Mat row_op(Mat m, Point rowRange)
+{
+    Mat sample;
+    sample.flags = m.flags;
+    sample.rows = m.rows;
+    sample.cols = m.cols;
+    sample.step[0] = m.step[0];
+    sample.step[1] = m.step[1];
+    sample.data = m.data;
+    sample.datastart = m.datastart;
+    sample.dataend = m.dataend;
+    sample.datalimit = m.datalimit;
+
+    updateContinuityFlag(&sample);
+}
+
 void meanStdDev(Mat* src, Scalar* mean, Scalar* sdv, Mat* mask)
 {
     int k, cn = channels(*src), depth = depth(*src);
@@ -3311,7 +3468,7 @@ void split_(const unsigned char* src, unsigned char** dst, int len, int cn)
     }
 }
 
-void Split(Mat src, Mat* mv)
+void split_(Mat src, Mat* mv)
 {
     int k, depth = depth(src), cn = channels(src);
     if(cn == 1)
@@ -3371,7 +3528,7 @@ void split(Mat m, vector* dst/* Mat */)
     for (int i = 0; i < cn; ++i)
         createVectorMat(dst, m.rows, m.cols, depth, i);
 
-    Split(m, vector_get(dst, 0));
+    split_(m, vector_get(dst, 0));
 }
 
 int floor(double value)
