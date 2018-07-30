@@ -289,84 +289,6 @@ typedef struct CvtHelper
     Size dstSz;
 } CvtHelper ;
 
-// Represents a pair of ER's
-typedef struct region_pair
-{
-    Point a;
-    Point b;
-} region_pair ;
-
-// struct region_sequence
-// Represents a sequence of more than three ER's
-typedef struct region_sequence
-{
-    vector* triplets; //region_triplet
-};
-
-region_sequence Region_sequence(region_triplet* t)
-{
-    region_sequence sequence;
-    sequence.triplets = malloc(sizeof(vector));
-    vector_add(sequence.triplets, t);
-    return sequence;
-}
-
-// struct line_estimates
-// Represents a line estimate (as above) for an ER's group
-// i.e.: slope and intercept of 2 top and 2 bottom lines
-typedef struct line_estimates
-{
-    float top1_a0;
-    float top1_a1;
-    float top2_a0;
-    float top2_a1;
-    float bottom1_a0;
-    float bottom1_a1;
-    float bottom2_a0;
-    float bottom2_a1;
-    int x_min;
-    int x_max;
-    int h_max;
-} line_estimates ;
-
-
-bool equal_line_estimates(line_estimates e1, line_estimates e2)
-{
-    return ((e1.top1_a0 == e2.top1_a0) && (e1.top1_a1 == e2.top1_a1) && (e1.top2_a0 == e2.top2_a0) &&
-        (e1.top2_a1 == e2.top2_a1) && (e1.bottom1_a0 == e2.bottom1_a0) && (e1.bottom1_a1 == e2.bottom1_a1) &&
-        (e1.bottom2_a0 == e2.bottom2_a0) && (e1.bottom2_a1 == e2.bottom2_a1) && (e1.x_min == e2.x_min) &&
-        (e1.x_max == e2.x_max) && (e1.h_max == e2.h_max));
-}
-
-// struct region_triplet
-// Represents a triplet of ER's
-typedef struct region_triplet
-{
-    Point a;
-    Point b;
-    Point c;
-    line_estimates estimates;
-} region_triplet ;
-
-
-bool equalRegionPairs(region_pair r1, region_pair r2)
-{
-    return r1.a.x == r2.a.x && r1.a.y == r2.a.y && r1.b.x == r2.b.x && r1.b.y == r2.b.y;
-}
-
-typedef struct Rect
-{
-	int x;					  //!< x coordinate of the top-left corner
-	int y;					  //!< y coordinate of the top-left corner 
-	int width;				  //!< width of the rectangle
-	int height;				  //!< height of the rectangle
-} Rect ;
-
-typedef struct Scalar
-{
-    double val[4];
-} Scalar ;
-
 typedef struct SeqReader
 {
     CV_SEQ_READER_FIELDS()
@@ -384,81 +306,7 @@ typedef union Cv32suf
         unsigned int exponent    : 8;
         unsigned int sign        : 1;
     } fmt;
-}
-Cv32suf;
-
-
-/** @brief The ERStat structure represents a class-specific Extremal Region (ER).
-
-An ER is a 4-connected set of pixels with all its grey-level values smaller than the values in its
-outer boundary. A class-specific ER is selected (using a classifier) from all the ER's in the
-component tree of the image. :
- */
-typedef struct ERStat
-{
-	//! Incrementally Computable Descriptors
-	int pixel;
-	int level;
-	int area;
-    int perimeter;
-    int euler;                 //!< Euler's number
-    Rect rect;				   // Rect_<int>
-    double raw_moments[2];     //!< order 1 raw moments to derive the centroid
-	double central_moments[3]; //!< order 2 central moments to construct the covariance matrix
-	vector* crossings;     	   //!< horizontal crossings
-	float med_crossings;       //!< median of the crossings at three different height levels
-
-	//! stage 2 features
-	float hole_area_ratio;
-	float convex_hull_ratio;
-	float num_inflexion_points;
-
-	//! pixel list after the 2nd stage
-	int** pixels;
-
-	//! probability that the ER belongs to the class we are looking for
-	double probability;
-
-	//! pointers preserving the tree structure of the component tree --> might be optional
-	ERStat* parent;
-	ERStat* child;
-	ERStat* next;
-	ERStat* prev;
-
-	//! whenever the regions is a local maxima of the probability
-	bool local_maxima;
-	ERStat* max_probability_ancestor;
-	ERStat* min_probability_ancestor;
-} ERStat ;
-
-// the struct implementing the interface for the 1st and 2nd stages of Neumann and Matas algorithm
-typedef struct ERFilterNM
-{
-    int type; // type = 1 --> evalNM1, type = 2 --> evalNM2
-	float minProbability;   
-	bool  nonMaxSuppression;
-	float minProbabilityDiff;
-	int thresholdDelta;
-	float maxArea; 
-    float minArea;
-
-    ERClassifierNM* classifier;
-
-    // count of the rejected/accepted regions
-	int num_rejected_regions;
-	int num_accepted_regions;
-
-	//! Input/output regions
-	vector* regions; //ERStat
-
-	//! image mask used for feature calculations
-	Mat region_mask;
-} ERFilterNM ;
-
-typedef struct ERClassifierNM
-{
-	Boost* boost;
-} ERClassifierNM ;
+} Cv32suf ;
 
 typedef struct FFillSegment
 {
@@ -681,12 +529,6 @@ typedef struct TreeNodeIterator
     int max_level;
 } TreeNodeIterator ;
 
-typedef struct CvString
-{
-    int len;
-    char* ptr;
-} CvString ;
-
 typedef void (*CvStartWriteStruct)( struct CvFileStorage* fs, const char* key,
                                     int struct_flags, const char* type_name );
 typedef void (*CvEndWriteStruct)( struct CvFileStorage* fs );
@@ -718,7 +560,7 @@ typedef struct CvFileStorage
     Seq* write_stack;
     int struct_indent;
     int struct_flags;
-    CvString struct_tag;
+    char* struct_tag;
     int space;
     char* filename;
     FILE* file;
@@ -821,10 +663,10 @@ typedef struct AttrList
 
 char* icvGets(CvFileStorage* fs, char* str, int maxCount)
 {
-    if( fs->file )
+    if(fs->file)
     {
-        char* ptr = fgets( str, maxCount, fs->file );
-        if (ptr && maxCount > 256 && !(fs->flags & 64))
+        char* ptr = fgets(str, maxCount, fs->file);
+        if(ptr && maxCount > 256 && !(fs->flags & 64))
         {
             size_t sz = strnlen(ptr, maxCount);
             assert(sz < (size_t)(maxCount - 1));
@@ -938,7 +780,7 @@ StringHashNode* GetHashedKey(CvFileStorage* fs, const char* str, int len, int cr
         node = (StringHashNode*)SetNew((Set*)map);
         node->hashval = hashval;
         node->str = cvMemStorageAllocString( map->storage, str, len );
-        node->next = (CvStringHashNode*)(map->table[i]);
+        node->next = (StringHashNode*)(map->table[i]);
         map->table[i] = node;
     }
 
@@ -1197,6 +1039,20 @@ CvFileNode* cvGetFileNode(CvFileStorage* fs, CvFileNode* _map_node, const String
     }
 
     return value;
+}
+
+char* cvMemStorageAllocString(MemStorage* storage, const char* ptr, int len)
+{
+    char* str;
+    memset(&str, 0, sizeof(char**));
+
+    int length = len >= 0 ? len : (int)strlen(ptr);
+    str = len >= 0 ? malloc(sizeof(char)*len) : (int)strlen(ptr);
+    str = (char*)MemStorageAlloc(storage, length + 1);
+    memcpy(str, ptr, strlen(str));
+    str[strlen(str)] = '\0';
+
+    return str;
 }
 
 static char* icvXMLParseValue(CvFileStorage* fs, char* ptr, CvFileNode* node, int value_type)
@@ -2825,11 +2681,24 @@ void cvt32f8u(const float* src, size_t sstep, unsigned char* dst, size_t dstep, 
     sstep /= sizeof(src[0]);
     dstep /= sizeof(dst[0]);
 
-    for(; size.height--; src += sstep, dst += dstep)
+    for(; size.y--; src += sstep, dst += dstep)
     {
         int x = 0;
-        for(; x < size.width; x++)
+        for(; x < size.x; x++)
             dst[x] = (unsigned char)src[x];
+    }
+}
+
+void cvt8u32f(const unsigned char* src, size_t sstep, float* dst, size_t dstep, Point size)
+{
+    sstep /= sizeof(src[0]);
+    dstep /= sizeof(dst[0]);
+
+    for(; size.y--; src += sstep, dst += dstep)
+    {
+        int x = 0;
+        for(; x < size.x; x++)
+            dst[x] = (float)src[x];
     }
 }
 
@@ -2860,7 +2729,7 @@ void convertTo(Mat src, Mat* dst, int _type, double alpha/*1*/, double beta/*0*/
     double scale[] = {alpha, beta};
     int cn = channels(src);
 
-    Point sz = getContinuousSize(src, dst, cn);
+    Point sz = getContinuousSize(src, *dst, cn);
     if(code == CVT32F8U)
     {
         cvt32f8u(src.data, src.step, dst->data, dst->step, sz);
@@ -2873,8 +2742,15 @@ void convertTo(Mat src, Mat* dst, int _type, double alpha/*1*/, double beta/*0*/
         return;
     }
 
-    else
-        cpy_8u(src.data, src.step, dst->data, dst->step, sz);
+    if(code == CVT8U32F)
+    {
+        //uchar , float, 
+        cvt8u32f(src.data, src.step, dst->data, dst->step, sz, scale);
+        return;
+    }
+
+    //else
+    //   cpy_8u(src.data, src.step, dst->data, dst->step, sz);
 }
 
 static inline int Align(int size, int align)
@@ -3087,13 +2963,129 @@ Mat row_op(Mat m, Point rowRange)
     updateContinuityFlag(&sample);
 }
 
+static int sqsum8u(const unsigned char* src, const unsigned char* mask, int* sum, int* sqsum, int len, int cn)
+{
+    const unsigned char* src = src0;
+
+    if(!mask)
+    {
+        int i = 0, k = cn % 4;
+        src += i * cn;
+
+        if(k == 1)
+        {
+            int s0 = sum[0];
+            int sq0 = sqsum[0];
+            for(; i < len; i++, src += cn)
+            {
+                int v = src[0];
+                s0 += v; sq0 += (int)v*v;
+            }
+            sum[0] = s0;
+            sqsum[0] = sq0;
+        }
+        else if( k == 2 )
+        {
+            int s0 = sum[0], s1 = sum[1];
+            int sq0 = sqsum[0], sq1 = sqsum[1];
+            for(; i < len; i++, src += cn)
+            {
+                unsigned char v0 = src[0], v1 = src[1];
+                s0 += v0; sq0 += (int)v0*v0;
+                s1 += v1; sq1 += (int)v1*v1;
+            }
+            sum[0] = s0; sum[1] = s1;
+            sqsum[0] = sq0; sqsum[1] = sq1;
+        }
+        else if(k == 3)
+        {
+            int s0 = sum[0], s1 = sum[1], s2 = sum[2];
+            int sq0 = sqsum[0], sq1 = sqsum[1], sq2 = sqsum[2];
+            for(; i < len; i++, src += cn)
+            {
+                unsigned char v0 = src[0], v1 = src[1], v2 = src[2];
+                s0 += v0; sq0 += (int)v0*v0;
+                s1 += v1; sq1 += (int)v1*v1;
+                s2 += v2; sq2 += (int)v2*v2;
+            }
+            sum[0] = s0; sum[1] = s1; sum[2] = s2;
+            sqsum[0] = sq0; sqsum[1] = sq1; sqsum[2] = sq2;
+        }
+
+        for(; k < cn; k += 4)
+        {
+            src = src0 + k;
+            int s0 = sum[k], s1 = sum[k+1], s2 = sum[k+2], s3 = sum[k+3];
+            int sq0 = sqsum[k], sq1 = sqsum[k+1], sq2 = sqsum[k+2], sq3 = sqsum[k+3];
+            for(; i < len; i++, src += cn)
+            {
+                unsigned char v0, v1;
+                v0 = src[0], v1 = src[1];
+                s0 += v0; sq0 += (int)v0*v0;
+                s1 += v1; sq1 += (int)v1*v1;
+                v0 = src[2], v1 = src[3];
+                s2 += v0; sq2 += (int)v0*v0;
+                s3 += v1; sq3 += (int)v1*v1;
+            }
+            sum[k] = s0; sum[k+1] = s1;
+            sum[k+2] = s2; sum[k+3] = s3;
+            sqsum[k] = sq0; sqsum[k+1] = sq1;
+            sqsum[k+2] = sq2; sqsum[k+3] = sq3;
+        }
+        return len;
+    }
+
+    if(cn == 1)
+    {
+        int s0 = sum[0];
+        int sq0 = sqsum[0];
+        for( i = 0; i < len; i++ )
+            if( mask[i] )
+            {
+                unsigned char v = src[i];
+                s0 += v; sq0 += (int)v*v;
+                nzm++;
+            }
+        sum[0] = s0;
+        sqsum[0] = sq0;
+    }
+    else if(cn == 3)
+    {
+        int s0 = sum[0], s1 = sum[1], s2 = sum[2];
+        int sq0 = sqsum[0], sq1 = sqsum[1], sq2 = sqsum[2];
+        for(i = 0; i < len; i++, src += 3)
+            if(mask[i])
+            {
+                unsigned char v0 = src[0], v1 = src[1], v2 = src[2];
+                s0 += v0; sq0 += (int)v0*v0;
+                s1 += v1; sq1 += (int)v1*v1;
+                s2 += v2; sq2 += (int)v2*v2;
+                nzm++;
+            }
+        sum[0] = s0; sum[1] = s1; sum[2] = s2;
+        sqsum[0] = sq0; sqsum[1] = sq1; sqsum[2] = sq2;
+    }
+    else
+    {
+        for(i = 0; i < len; i++, src += cn)
+            if(mask[i])
+            {
+                for(int k = 0; k < cn; k++)
+                {
+                    unsigned char v = src[k];
+                    int s = sum[k] + v;
+                    int sq = sqsum[k] + (int)v*v;
+                    sum[k] = s; sqsum[k] = sq;
+                }
+                nzm++;
+            }
+    }
+    return nzm;
+}
+
 void meanStdDev(Mat* src, Scalar* mean, Scalar* sdv, Mat* mask)
 {
     int k, cn = channels(*src), depth = depth(*src);
-
-    SumSqrFunc func = getSumSqrTab(depth);
-
-    assert(func != 0);
 
     const Mat* arrays[] = {src, mask, 0};
     unsigned char* ptrs[2];
@@ -3101,9 +3093,9 @@ void meanStdDev(Mat* src, Scalar* mean, Scalar* sdv, Mat* mask)
     int total = it.size, blockSize = total, intSumBlockSize = 0;
     int j, count = 0, nz0 = 0;
     AutoBuffer _buf = init_AutoBufferdouble(cn*4);
-    double* s = malloc(sizeof(double)* cn*4), *sq = s + cn;
+    double* s = (double*)_buf.ptr;, *sq = s + cn;
     int *sbuf = (int*)s, *sqbuf = (int*)sq;
-    bool blockSum = depth <= CV_16S, blockSqSum = depth <= CV_8S;
+    bool blockSum = depth <= 3, blockSqSum = depth <= 1;
     size_t esz = 0;
 
     for(k = 0; k < cn; k++)
@@ -3123,10 +3115,10 @@ void meanStdDev(Mat* src, Scalar* mean, Scalar* sdv, Mat* mask)
 
     for(size_t i = 0; i < it.nplanes; i++, getNextIterator(&it))
     {
-        for( j = 0; j < total; j += blockSize )
+        for(j = 0; j < total; j += blockSize)
         {
             int bsz = min(total - j, blockSize);
-            int nz = func(ptrs[0], ptrs[1], (unsigned char*)sbuf, (unsigned char*)sqbuf, bsz, cn);
+            int nz = sqsum8u(ptrs[0], ptrs[1], (unsigned char*)sbuf, (unsigned char*)sqbuf, bsz, cn);
             count += nz;
             nz0 += nz;
             if(blockSum && (count + blockSize >= intSumBlockSize || (i+1 >= it.nplanes && j+bsz >= total)))
@@ -3167,7 +3159,7 @@ void meanStdDev(Mat* src, Scalar* mean, Scalar* sdv, Mat* mask)
         Mat dst = getMatfromScalar(_dst);
 
         int dcn = total(dst);
-        assert(type(dst) == CV_64F && isContinuous(dst) &&
+        assert(type(dst) == 6 && isContinuous(dst) &&
                    (dst.cols == 1 || dst.rows == 1) && dcn >= cn );
         double* dptr = (double*)ptr(dst, 0);
         for(k = 0; k < cn; k++)
@@ -3316,13 +3308,18 @@ void createVectorOfVector(vector** v, int rows, int cols, int mtype, int i, bool
 
 }
 
+static int countNonZero8u(const unsigned char* src, int len)
+{
+    int i=0, nz = 0;
+    for( ; i < len; i++ )
+        nz += src[i] != 0;
+    return nz;
+}
+
 int countNonZero(Mat src)
 {
     int type = type(src), cn = CV_MAT_CN(type);
     assert(cn == 1);
-
-    CountNonZeroFunc func = getCountNonZeroTab(depth(src));
-    assert(func != 0);
 
     const Mat* arrays[] = {&src, 0};
     unsigned char* ptrs[1];
@@ -3330,7 +3327,7 @@ int countNonZero(Mat src)
     int total = (int)it.size, nz = 0;
 
     for( size_t i = 0; i < it.nplanes; i++, ++it )
-        nz += func(ptrs[0], total);
+        nz += countNonZero8u(ptrs[0], total);
 
     return nz;
 }
@@ -3529,19 +3526,6 @@ void split(Mat m, vector* dst/* Mat */)
         createVectorMat(dst, m.rows, m.cols, depth, i);
 
     split_(m, vector_get(dst, 0));
-}
-
-int floor(double value)
-{
-    int i = (int)value;
-    return i - (i > value);
-}
-
-int round(double value)
-{
-    /* it's ok if round does not comply with IEEE754 standard;
-       the tests should allow +/-1 difference when the tested functions use round */
-    return (int)(value + (value >= 0 ? 0.5 : -0.5));
 }
 
 Point init_Point(int _x, int _y)
@@ -4197,9 +4181,16 @@ void magnitude(Mat X, Mat Y, Mat* Mag)
     }
 }
 
+Mat mat_op(Mat mat)
+{
+    Mat m;
+    m.flags = 1124007941;
+    convertTo(mat, &m, 5, 1, 0, CVT8U32F);
+}
+
 void get_gradient_magnitude(Mat* _grey_image, Mat* _gradient_magnitude)
 {
-    Mat C = Mat_<float>(_grey_img);
+    Mat C = mat_op(*_grey_image);
 
     Mat kernel;
     create(&kernel, 1, 3, 5);
@@ -4207,44 +4198,16 @@ void get_gradient_magnitude(Mat* _grey_image, Mat* _gradient_magnitude)
     leftshift_op(&kernel, 3, sample);
 
     Mat grad_x;
-    filter2D(C, grad_x, -1, kernel, init_Point(-1,-1), 0, BORDER_DEFAULT);
+    filter2D(C, grad_x, -1, kernel, init_Point(-1,-1), 0, 4);
 
     Mat kernel2;
     create(&kernel2, 3, 1, 5);
     leftshift_op(&kernel, 3, sample);
     Mat grad_y;
-    filter2D(C, grad_y, -1, kernel2, init_Point(-1,-1), 0, BORDER_DEFAULT);
+    filter2D(C, grad_y, -1, kernel2, init_Point(-1,-1), 0, 4);
 
     magnitude(grad_x, grad_y, _gradient_magnitude);
 }
-
-Scalar init_Scalar(double v1, double v2, double v3, double v4)
-{
-    Scalar s;
-    s.val[0] = v1;
-    s.val[1] = v2;
-    s.val[2] = v3;
-    s.val[3] = v4;
-    return s;
-}
-
-region_pair init_region_pair(Point a, Point b)
-{
-    region_pair pair;
-    pair.a = a;
-    pair.b = b;
-    return pair;
-}
-
-region_triplet init_region_triplet(Point _a, Point _b, Point _c)
-{
-    region_triplet triplet;
-    triplet.a = _a;
-    triplet.b = _b;
-    triplet.c = _c;
-    return triplet;
-}
-
 
 void convexHull(Mat points, vector* hull, bool clockwise /* false */, bool returnPoints/* true */)
 {
@@ -4284,54 +4247,6 @@ void convexHull(Mat points, vector* hull, bool clockwise /* false */, bool retur
         }
     }
     
-}
-
-
-void init_ERStat(ERStat* erstat, int init_level, int init_pixel, int init_x, int init_y)
-{
-	erstat->level = init_level;
-	erstat->pixel = init_pixel;
-	erstat->area = 0;
-	erstat->perimeter = 0;
-	erstat->euler = 0;
-	erstat->probability = 1.0;
-	erstat->local_maxima = 0;
-	erstat->parent = 0;
-	erstat->child = 0;
-	erstat->prev = 0;
-	erstat->next = 0;
-	erstat->max_probability_ancestor = 0;
-	erstat->min_probability_ancestor = 0;
-	erstat->rect = init_Rect(init_x, init_y, 1, 1);
-	(erstat->raw_moments)[0] = 0.0;
-	(erstat->raw_moments)[1] = 0.0;
-	(erstat->central_moments)[0] = 0.0;
-	(erstat->central_moments)[1] = 0.0;
-	(erstat->central_moments)[2] = 0.0;
-	erstat->crossings = malloc(sizeof(vector));
-	vector_init(erstat->crossings);
-	int val = 0;
-	vector_add(erstat->crossings, &val);
-}
-
-Rect init_Rect(int _x, int _y, int _width, int _height)
-{
-    Rect r;
-	r->x = _x;
-	r->y = _y;
-	r->width = _width;
-	r->height = _height;
-    return r;
-}
-
-Rect createRect(Point p, Point q)
-{
-    Rect r;
-    r.x = min(p.x, q.x);
-    r.y = min(p.y, q.y);
-    r.width = max(p.x, q.x) - r.x;
-    r.height = max(p.y, q.y) - r.y;
-    return r;
 }
 
 MatIterator matIterator(const Mat** _arrays, Mat* _planes, unsigned char** _ptrs, int _narrays)
@@ -5630,11 +5545,11 @@ void floodFillGrad_CnIR3(Mat* image, Mat* msk,
     XMax = R;
     XMin = L;
 
-    tail->y = (ushort)(seed.y);
-    tail->l = (ushort)(L);
-    tail->r = (ushort)(R);
-    tail->prevl = (ushort)(R+1);
-    tail->prevr = (ushort)(R);
+    tail->y = (unsigned short)(seed.y);
+    tail->l = (unsigned short)(L);
+    tail->r = (unsigned short)(R);
+    tail->prevl = (unsigned short)(R+1);
+    tail->prevr = (unsigned short)(R);
     tail->dir = (short)(UP);
     if(++tail == buffer_end)                    
     {                                             
@@ -5932,49 +5847,6 @@ void floodFill(Mat* img, Mat* mask, Point seedPoint, Scalar newval, Rect* rect, 
     if(rect)
        *rect = comp.rect;
     return comp.area;
-}
-
-
-
-void swap(void *v1, void* v2)
-{
-    int temp = *(int *)v1;
-    *(int *)v1 = *(int *)v2;
-    *(int *)v2 = temp;
-}
-
-void sort_3ints(vector *v)
-{
-    if (*(int *)vector_get(v, 0) > *(int *)vector_get(v, 1))
-        swap(vector_get(v, 0), vector_get(v, 1));
-
-    if (*(int *)vector_get(v, 1) > *(int *)vector_get(v, 2))
-        swap(vector_get(v, 1), vector_get(v, 2));
-
-    if (*(int *)vector_get(v, 0) > *(int *)vector_get(v, 1))
-        swap(vector_get(v, 0), vector_get(v, 1));
-}
-
-Rect performOR(Rect* a, Rect* b)
-{
-    if(a->width <= 0 || a->height <= 0)
-        a = b;
-
-    else if(b->width > 0 && b->height > 0)
-    {
-        int x1 = min(a->x, b->x);
-        int y1 = min(a->y, b->y);
-        a->width = max(a->x + a->width, b->x + b->width) - x1;
-        a->height = max(a->y + a->height, b->y + b->height) - y1;
-        a->x = x1;
-        a->y = y1;
-    }
-    return *a;
-}
-
-bool equalRects(Rect a, Rect b)
-{
-    return (a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height);
 }
 
 static void thresh_8u(Mat* src, Mat* dst, unsigned char thresh, unsigned char maxval, int type)
@@ -6661,7 +6533,7 @@ Seq* cvPointSeqFromMat(int seq_kind, const void* arr,
 
 static Rect maskBoundingRect(Mat* img)
 {
-    assert(depth(*img) <= CV_8S && channels(*img) == 1);
+    assert(depth(*img) <= 1 && channels(*img) == 1);
 
     int size[2] = {src->rows, src->cols};
     int xmin = size[1], ymin = -1, xmax = -1, ymax = -1, i, j, k;
@@ -6833,164 +6705,6 @@ static Rect pointSetBoundingRect(Mat points)
     }
 
     return init_Rect(xmin, ymin, xmax - xmin + 1, ymax - ymin + 1);
-}
-
-
-/* Calculates bounding rectangle of a point set or retrieves already calculated */
-Rect cvBoundingRect(void* array, int update)
-{
-    Rect rect;
-    Contour contour_header;
-    Seq* ptseq = 0;
-    SeqBlock block;
-
-    Mat stub, *mat = 0;
-    int calculate = update;
-
-    if(CV_IS_SEQ(array))
-    {
-        ptseq = (Seq*)array;
-        if(!CV_IS_SEQ_POINT_SET(ptseq))
-            fatal("Unsupported sequence type" );
-
-        if(ptseq->header_size < (int)sizeof(Contour))
-        {
-            update = 0;
-            calculate = 1;
-        }
-    }
-    else
-    {
-        mat = GetMat(array, &stub);
-        if(CV_MAT_TYPE(mat->type) == CV_32SC2 ||
-            CV_MAT_TYPE(mat->type) == CV_32FC2)
-        {
-            ptseq = cvPointSeqFromMat(CV_SEQ_KIND_GENERIC, mat, &contour_header, &block);
-            mat = 0;
-        }
-        else if( CV_MAT_TYPE(mat->type) != CV_8UC1 &&
-                CV_MAT_TYPE(mat->type) != CV_8SC1 )
-            fatal("The image/matrix format is not supported by the function");
-        update = 0;
-        calculate = 1;
-    }
-
-    if(!calculate)
-        return ((Contour*)ptseq)->rect;
-
-    if(mat)
-    {
-        rect = maskBoundingRect(mat);
-    }
-    else if(ptseq->total)
-    {
-        AutoBuffer abuf;
-        rect = pointSetBoundingRect(cv::cvarrToMat(ptseq, false, false, 0, &abuf));
-    }
-    if(update)
-        ((Contour*)ptseq)->rect = rect;
-    return rect;
-}
-
-static void icvFetchContour(signed char *ptr, int step, Point pt, Seq* contour, int _method)
-{
-    const signed char     nbd = 2;
-    int deltas[MAX_SIZE];
-    SeqWriter writer;
-    signed char *i0 = ptr, *i1, *i3, *i4 = 0;
-    int prev_s = -1, s, s_end;
-    int method = _method - 1;
-
-    /* initialize local state */
-    CV_INIT_3X3_DELTAS(deltas, step, 1+);
-    memcpy(deltas + 8, deltas, 8 * sizeof(deltas[0]));
-
-    /* initialize writer */
-    StartAppendToSeq(contour, &writer);
-
-    if(method < 0)
-        ((Chain*)contour)->origin = pt;
-
-    s_end = s = CV_IS_SEQ_HOLE(contour) ? 0 : 4;
-
-    do
-    {
-        s = (s - 1) & 7;
-        i1 = i0 + deltas[s];
-    }
-    while(*i1 == 0 && s != s_end);
-
-    if(s == s_end)            /* single pixel domain */
-    {
-        *i0 = (signed char)(nbd | -128);
-        if(method >= 0)
-        {
-            CV_WRITE_SEQ_ELEM(pt, writer);
-        }
-    }
-    else
-    {
-        i3 = i0;
-        prev_s = s ^ 4;
-
-        /* follow border */
-        for(;;)
-        {
-            assert(i3 != NULL);
-            s_end = s;
-            s = min(s, MAX_SIZE - 1);
-
-            while(s < MAX_SIZE - 1)
-            {
-                i4 = i3 + deltas[++s];
-                assert(i4 != NULL);
-                if(*i4 != 0)
-                    break;
-            }
-            s &= 7;
-
-            /* check "right" bound */
-            if((unsigned)(s-1) < (unsigned)s_end)
-            {
-                *i3 = (signed char)(nbd | -128);
-            }
-            else if(*i3 == 1)
-            {
-                *i3 = nbd;
-            }
-
-            if(method < 0)
-            {
-                signed char _s = (signed char) s;
-
-                CV_WRITE_SEQ_ELEM(_s, writer);
-            }
-            else
-            {
-                if(s != prev_s || method == 0)
-                {
-                    CV_WRITE_SEQ_ELEM( pt, writer );
-                    prev_s = s;
-                }
-
-                pt.x += icvCodeDeltas[s].x;
-                pt.y += icvCodeDeltas[s].y;
-
-            }
-
-            if( i4 == i0 && i3 == i1 )
-                break;
-
-            i3 = i4;
-            s = (s + 4) & 7;
-        }                       /* end of border following loop */
-    }
-
-    EndWriteSeq(&writer);
-
-    if(_method != CV_CHAIN_CODE)
-        cvBoundingRect(contour, 1);
-
 }
 
 /* Add new element to the set: */
@@ -7825,50 +7539,38 @@ Seq* FindNextContour(ContourScanner* scanner)
                                    scanner->elem_size1, scanner->storage1);
             seq->flags |= is_hole ? CV_SEQ_FLAG_HOLE : 0;
 
-            /* initialize header */
-            if(mode <= 1)
+            union {ContourInfo* ci; SetElem* se;} v;
+            v.ci = l_cinfo;
+            SetAdd(scanner->cinfo_set, 0, &v.se);
+            l_cinfo = v.ci;
+            int lval;
+
+            if(img_i)
             {
-                l_cinfo = &(scanner->cinfo_temp);
-                icvFetchContour( img + x - is_hole, step,
-                                 init_Point(origin.x + scanner->offset.x,
-                                          origin.y + scanner->offset.y),
-                                 seq, scanner->approx_method1);
+                lval = img_i[x - is_hole] & 127;
+                icvFetchContourEx_32s(img_i + x - is_hole, step_i,
+                                      init_Point(origin.x + scanner->offset.x,
+                                               origin.y + scanner->offset.y),
+                                      seq, scanner->approx_method1,
+                                      &(l_cinfo->rect));
             }
             else
             {
-                union {ContourInfo* ci; SetElem* se;} v;
-                v.ci = l_cinfo;
-                SetAdd(scanner->cinfo_set, 0, &v.se);
-                l_cinfo = v.ci;
-                int lval;
-
-                if(img_i)
-                {
-                    lval = img_i[x - is_hole] & 127;
-                    icvFetchContourEx_32s(img_i + x - is_hole, step_i,
-                                          init_Point(origin.x + scanner->offset.x,
-                                                   origin.y + scanner->offset.y),
-                                          seq, scanner->approx_method1,
-                                          &(l_cinfo->rect));
-                }
-                else
-                {
-                    lval = nbd;
-                    // change nbd
-                    nbd = (nbd + 1) & 127;
-                    nbd += nbd == 0 ? 3 : 0;
-                    icvFetchContourEx(img + x-is_hole, step,
-                                       init_Point(origin.x + scanner->offset.x,
-                                                origin.y + scanner->offset.y),
-                                       seq, scanner->approx_method1,
-                                       lval, &(l_cinfo->rect));
-                }
-                l_cinfo->rect.x -= scanner->offset.x;
-                l_cinfo->rect.y -= scanner->offset.y;
-
-                l_cinfo->next = scanner->cinfo_table[lval];
-                scanner->cinfo_table[lval] = l_cinfo;
+                lval = nbd;
+                // change nbd
+                nbd = (nbd + 1) & 127;
+                nbd += nbd == 0 ? 3 : 0;
+                icvFetchContourEx(img + x-is_hole, step,
+                                   init_Point(origin.x + scanner->offset.x,
+                                            origin.y + scanner->offset.y),
+                                   seq, scanner->approx_method1,
+                                   lval, &(l_cinfo->rect));
             }
+            l_cinfo->rect.x -= scanner->offset.x;
+            l_cinfo->rect.y -= scanner->offset.y;
+
+            l_cinfo->next = scanner->cinfo_table[lval];
+            scanner->cinfo_table[lval] = l_cinfo;
             l_cinfo->is_hole = is_hole;
             l_cinfo->contour = seq;
             l_cinfo->origin = origin;
@@ -8358,7 +8060,7 @@ void* NextTreeNode(TreeNodeIterator* treeIterator)
     return prevNode;
 }
 
-void cvInitTreeNodeIterator(TreeNodeIterator* treeIterator, const void* first, int max_level)
+void InitTreeNodeIterator(TreeNodeIterator* treeIterator, const void* first, int max_level)
 {
     if(!treeIterator || !first)
         fatal("NULL Pointer Error");
@@ -8383,7 +8085,7 @@ Seq* TreeToNodeSeq(const void* first, int header_size, MemStorage* storage)
 
     if(first)
     {
-        cvInitTreeNodeIterator(&iterator, first, INT_MAX);
+        InitTreeNodeIterator(&iterator, first, INT_MAX);
 
         for(;;)
         {
@@ -8401,11 +8103,12 @@ void findContours(Mat image0, vector** contours/* Point */, vector* hierarchy/* 
     Point offset0;
     offset0.x = offset0.y = -1;
     Scalar s = init_Scalar(0, 0, 0, 0);
-    Mat* image;
-    copyMakeBorder(image0, image, 1, 1, 1, 1, BORDER_CONSTANT | BORDER_ISOLATED, s);
+    Mat* image = malloc(sizeof(Mat));;
+    copyMakeBorder(image0, image, 1, 1, 1, 1, 16, s);
     MemStorage* storage = malloc(sizeof(MemStorage));
     init_MemStorage(storage, 0);
     Seq* _ccontours = 0;
+    vector_free(hierarchy);
     cvFindContours_Impl(image, storage, &_ccontours, sizeof(Contour), mode, method, init_Point(offset.x + offset0.x, offset.y + offset0.y), 0);
 
     if(!_ccontours)
@@ -8414,36 +8117,24 @@ void findContours(Mat image0, vector** contours/* Point */, vector* hierarchy/* 
         return;
     }
     Seq* all_contours = TreeToNodeSeq(_ccontours, sizeof(Seq), storage);
-    int i, total = (int)all_contours->total;
+    int i, total = all_contours ? all_contours->total, 0;
     createVectorOfVector(contours, total, 1, 0, -1, true, 0);
-    
+    SeqIterator it = begin_it(&all_contours);
+
 }
 
-typedef struct Point
+SeqIterator begin_it(Seq* seq)
 {
-    int x;
-    int y;
-} Point ;
-
-typedef struct Vec3i
-{
-    int val[3];
-} Vec3i ;
-
-Vec3i vec3i(int a, int b, int c)
-{
-    Vec3i v;
-    v.val[0] = a;
-    v.val[1] = b;
-    v.val[2] = c;
-    return v;
+    SeqIterator it;
+    StartReadSeq(seq, false);
+    index = 0;
 }
 
-typedef struct floatPoint
+typedef struct SeqIterator
 {
-    float x;
-    float y;
-} floatPoint ;
+    CV_SEQ_READER_FIELDS();
+    int index;
+} SeqIterator ;
 
 // area of a whole sequence
 double contourArea(vector* _contour /* Point */, bool oriented)
@@ -9007,39 +8698,3 @@ static int approxPolyDP_float(const floatPoint* src_contour, int count0, floatPo
 
     return new_count;
 }
-
-void setThresholdDeta(ERFilterNM* filter, int thresholdDelta)
-{
-    filter->thresholdDelta = thresholdDelta;
-}
-
-void setCallback(ERFilterNM* filter,ERClassifierNM *erc)
-{
-	filter->classifier = *erc;
-}
-
-void setMinArea(ERFilterNM* filter, float _minArea)
-{
-	filter->minArea = _minArea;
-}
-
-void setMaxArea(ERFilterNM* filter, float _maxArea)
-{
-	filter->maxArea = _maxArea;
-}
-
-void setMinProbability(ERFilterNM* filter, float _minProbability)
-{
-	filter->minProbability = _minProbability;
-}
-
-void setNonMaxSuppression(ERFilterNM* filter, bool _nonMaxSuppression)
-{
-	filter->nonMaxSuppression = _nonMaxSuppression;
-}
-
-void setMinProbabilityDiff(ERFilterNM* filter, float _minProbabilityDiff)
-{
-	filter->minProbabilityDiff = _minProbabilityDiff;
-}
-

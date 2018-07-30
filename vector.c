@@ -1,18 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void vector_init(vector *);
-int vector_size(vector *);
-static void vector_resize(vector *, int);
-void vector_add(vector *, void *);
-void vector_set(vector *, int, void *);
-void *vector_get(vector *, int);
-void vector_delete(vector *, int);
-void vector_free(vector *);
-void *vector_front(vector *);
-void *vector_back(vector *);
-bool vector_empty(vector *);
-
 typedef struct vector
 {
    void **items;
@@ -24,7 +12,8 @@ void vector_init(vector *v)
 {
    if(!v)
       v = malloc(sizeof(vector));
-   v->capacity = 0;
+   v->capacity = 1;
+   v->items = malloc(sizeof(void*));
    v->size = 0;
 }
 

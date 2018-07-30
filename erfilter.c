@@ -1,4 +1,136 @@
 #include <stdio.h>
+#include "math.h"
+
+// default 1st and 2nd stage classifier
+typedef struct ERClassifierNM
+{
+    Boost* boost;
+} ERClassifierNM ;
+
+// the struct implementing the interface for the 1st and 2nd stages of Neumann and Matas algorithm
+typedef struct ERFilterNM
+{
+    int type; // type = 1 --> evalNM1, type = 2 --> evalNM2
+    float minProbability;   
+    bool  nonMaxSuppression;
+    float minProbabilityDiff;
+
+    int thresholdDelta;
+    float maxArea; 
+    float minArea;
+
+    ERClassifierNM* classifier;
+
+    // count of the rejected/accepted regions
+    int num_rejected_regions;
+    int num_accepted_regions;
+
+    //! Pointer to the Input/output regions
+    vector* regions; //ERStat
+    //! image mask used for feature calculations
+    Mat region_mask;
+} ERFilterNM ;
+
+/** @brief The ERStat structure represents a class-specific Extremal Region (ER).
+
+An ER is a 4-connected set of pixels with all its grey-level values smaller than the values in its
+outer boundary. A class-specific ER is selected (using a classifier) from all the ER's in the
+component tree of the image. :
+ */
+typedef struct ERStat
+{
+    //! Incrementally Computable Descriptors
+    int pixel;
+    int level;
+    int area;
+    int perimeter;
+    int euler;                 //!< Euler's number
+    Rect rect;                 // Rect_<int>
+    double raw_moments[2];     //!< order 1 raw moments to derive the centroid
+    double central_moments[3]; //!< order 2 central moments to construct the covariance matrix
+    vector* crossings;         //!< horizontal crossings
+    float med_crossings;       //!< median of the crossings at three different height levels
+
+    //! stage 2 features
+    float hole_area_ratio;
+    float convex_hull_ratio;
+    float num_inflexion_points;
+
+    //! pixel list after the 2nd stage
+    int** pixels;
+
+    //! probability that the ER belongs to the class we are looking for
+    double probability;
+
+    //! pointers preserving the tree structure of the component tree --> might be optional
+    ERStat* parent;
+    ERStat* child;
+    ERStat* next;
+    ERStat* prev;
+
+    //! whenever the regions is a local maxima of the probability
+    bool local_maxima;
+    ERStat* max_probability_ancestor;
+    ERStat* min_probability_ancestor;
+} ERStat ;
+
+void init_ERStat(ERStat* erstat, int init_level, int init_pixel, int init_x, int init_y)
+{
+    erstat->level = init_level;
+    erstat->pixel = init_pixel;
+    erstat->area = 0;
+    erstat->perimeter = 0;
+    erstat->euler = 0;
+    erstat->probability = 1.0;
+    erstat->local_maxima = 0;
+    erstat->parent = 0;
+    erstat->child = 0;
+    erstat->prev = 0;
+    erstat->next = 0;
+    erstat->max_probability_ancestor = 0;
+    erstat->min_probability_ancestor = 0;
+    erstat->rect = init_Rect(init_x, init_y, 1, 1);
+    (erstat->raw_moments)[0] = 0.0;
+    (erstat->raw_moments)[1] = 0.0;
+    (erstat->central_moments)[0] = 0.0;
+    (erstat->central_moments)[1] = 0.0;
+    (erstat->central_moments)[2] = 0.0;
+    erstat->crossings = malloc(sizeof(vector));
+    vector_init(erstat->crossings);
+    int val = 0;
+    vector_add(erstat->crossings, &val);
+}
+
+// set/get methods to set the algorithm properties,
+void setCallback(ERFilterNM* filter,ERClassifierNM *erc)
+{
+    filter->classifier = *erc;
+}
+
+void setMinArea(ERFilterNM* filter, float _minArea)
+{
+    filter->minArea = _minArea;
+}
+
+void setMaxArea(ERFilterNM* filter, float _maxArea)
+{
+    filter->maxArea = _maxArea;
+}
+
+void setMinProbability(ERFilterNM* filter, float _minProbability)
+{
+    filter->minProbability = _minProbability;
+}
+
+void setNonMaxSuppression(ERFilterNM* filter, bool _nonMaxSuppression)
+{
+    filter->nonMaxSuppression = _nonMaxSuppression;
+}
+
+void setMinProbabilityDiff(ERFilterNM* filter, float _minProbabilityDiff)
+{
+    filter->minProbabilityDiff = _minProbabilityDiff;
+}
 
 /*!
     Compute the different channels to be processed independently in the N&M algorithm
@@ -52,6 +184,14 @@ void computeNMChannels(Mat src, vector* _channels/* Mat */)
     copyTo(gradient_magnitude, channelGrad);
 }
 
+double eval_dummy(ERClassifierNM* erc, const ERStat stat)
+{
+    if(stat.area == 0)
+        return (double)0.0;
+
+    return (double)1.0;
+}
+
 // The classifier must return probability measure for the region --> Stage-1
 float evalNM1(ERClassifierNM* erc, const ERStat stat)
 {
@@ -60,7 +200,7 @@ float evalNM1(ERClassifierNM* erc, const ERStat stat)
                      (float)(1-stat.euler), //number of holes
                      stat.med_crossings};
 	Mat sample; /* flags =  */
-	create(1, 4, 5/*CV_32F1*/);
+	create(&sample, 1, 4, 5/*CV_32F1*/);
     leftshift_op(&sample, 4, sample_);
 	
 	float votes = predict_ml(&(erc->boost->impl), sample, 257);
@@ -70,7 +210,7 @@ float evalNM1(ERClassifierNM* erc, const ERStat stat)
 }
 
 // The classifier must return probability measure for the region --> Stage-2
-double evalNM2(ERClassifierNM erc, const ERStat stat)
+double evalNM2(ERClassifierNM* erc, const ERStat stat)
 {
 	float sample_[7] = {(float)(stat.rect.width)/(stat.rect.height), // aspect ratio
                      sqrt((float)(stat.area))/stat.perimeter, // compactness
@@ -81,7 +221,7 @@ double evalNM2(ERClassifierNM erc, const ERStat stat)
     create(&sample, 1, 7, sample_);
     leftshift_op(&sample, 7, sample_);
 
-	float votes = predict_ml(erc.boost, sample, 257);
+	float votes = predict_ml(erc->boost, sample, 257);
 
 	// Logistic Correction returns a probability value (in the range(0,1))
 	return (double)1-(double)1/(1+exp(-2*votes));
@@ -130,7 +270,7 @@ ERClassifierNM* loadclassifierNM(ERClassifierNM* erc, const char* filename)
     \param  nonMaxSuppression Whenever non-maximum suppression is done over the branch probabilities
     \param  minProbability    The minimum probability difference between local maxima and local minima ERs
 */
-ERFilterNM* createERFilterNM1(ERClassifierNM* erc, int thresholdDelta, float minArea, float maxArea, float minArea, float minProbability, bool nonMaxSuppression, float minProbabilityDiff)
+ERFilterNM* createERFilterNM1(ERClassifierNM* erc, int thresholdDelta, float minArea, float maxArea, float minArea, float minProbability, bool nonMaxSuppression, float minProbabilityDiff, bool is_dummy)
 {
 	assert((minProbability >= 0.) && (minProbability <= 1.));
 	assert(minArea < maxArea) && (minArea >=0.) && (maxArea <= 1.);
@@ -138,6 +278,8 @@ ERFilterNM* createERFilterNM1(ERClassifierNM* erc, int thresholdDelta, float min
 	assert((minProbabilityDiff >= 0.) && (minProbabilityDiff <= 1.));
 
 	ERFilterNM* filter;
+    if(is_dummy)
+        filter->stage = 0;
     filter->stage = 1; //Stage 1 Extremal Region Filter
     setThresholdDeta(filter, thresholdDelta);
 	setCallback(filter, erc);
@@ -180,7 +322,6 @@ ERFilterNM* createERFilterNM2(ERClassifierNM* erc, float minProbability)
 // input/output for the second one.
 void run(ERFilterNM* filter, Mat m, vector* _regions)
 {
-	assert(type(m) == CV_8UC1);
 	filter->regions = _regions;
     zeros(&(filter->region_mask), m.rows+2, m.cols+2, CV_8UC1);
 	
@@ -190,9 +331,12 @@ void run(ERFilterNM* filter, Mat m, vector* _regions)
 		er_tree_extract(filter, m);
 		if(filter->nonMaxSuppression)
         {
-            int len = vector_size(filter->regions);
-            er_tree_nonmax_suppression(filter, (ERStat*)vector_front(filter->regions), NULL, NULL);
-            vector_init_n(filter->regions, len);
+            vector* aux_regions = malloc(sizeof(vector));
+            vector_init(aux_regions);
+            vector_swap(filter->regions, aux_regions);
+            vector_init_n(filter->regions, vector_size(aux_regions));
+            er_tree_nonmax_suppression(filter, (ERStat*)vector_front(aux_regions), NULL, NULL);
+            vector_free(aux_regions);
         }   
 	}
 	else // if regions vector is already filled we'll just filter the current regions
@@ -200,9 +344,12 @@ void run(ERFilterNM* filter, Mat m, vector* _regions)
         // the tree root must have no parent
 		assert((vector_front(filter->regions))->parent == NULL);
 
-        int len = vector_size(filter->regions);
+        vector* aux_regions = malloc(sizeof(vector));
+        vector_init(aux_regions);
+        vector_swap(filter->regions, aux_regions);
+        vector_init_n(filter->regions, vector_size(aux_regions));
 		er_tree_filter(filter, m, vector_front(filter->regions), NULL, NULL);
-        vector_init_n(filter->regions, len);
+        vector_free(aux_regions);
 	}
 }
 
@@ -211,11 +358,8 @@ void run(ERFilterNM* filter, Mat m, vector* _regions)
 // Linear time maximally stable extremal regions, D Nistér, H Stewénius – ECCV 2008
 void er_tree_extract(ERFilterNM* filter, Mat src)
 {	
-	assert(type(src) == CV_8UC1);
-
 	if(filter->thresholdDelta > 1)
 	{
-		// ***check this***
         divide_op(&src, filter->thresholdDelta);
 		minus_op(&src, filter->thresholdDelta);
 	}
@@ -473,7 +617,8 @@ void er_tree_extract(ERFilterNM* filter, Mat src)
         if(threshold_level == (255/filter->thresholdDelta)+1)
         {
         	// save the extracted regions into the output vector
-        	filter->regions = realloc(filter->regions, filter->num_accepted_regions+1);
+            if(filter->regions->capacity < filter->num_accepted_regions+1)
+                vector_resize(filter->resize, filter->num_accepted_regions+1);
             er_save(filter, *(ERStat**)vector_back(er_stack), NULL, NULL);
 
             // clean memory
@@ -665,11 +810,16 @@ void er_merge(ERFilterNM* filter, ERStat* parent, ERStat* child)
 
     // before saving calculate P(child|character) and filter if possible
     if(filter->classifier != NULL)
+    {
         if(filter->stage == 1)
     	   child->probability = evalNM1(filter->classifier, *child);
 
-        else
+        else if(filter->stage = 2)
             child->probability = evalNM2(filter->classifier, *child);
+
+        else
+            child->probability = eval_dummy(filter->classifier, *child);
+    }
 
     if((((filter->classifier!=NULL)?(child->probability >= filter->minProbability):true)||(filter->nonMaxSuppression)) &&
          ((child->area >= (filter->minArea*filter->region_mask.rows*filter->region_mask.cols)) &&
@@ -910,7 +1060,7 @@ ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *paren
 }
 
 // recursively walk the tree selecting only regions with local maxima probability
-ERStat* er_tree_nonmax_suppression(ERFilterNM *filter, ERStat* stat, ERStat* parent, ERStat* prev)
+ERStat* er_tree_nonmax_suppression(ERFilterNM* filter, ERStat* stat, ERStat* parent, ERStat* prev)
 {
     if(stat->local_maxima || stat->parent == NULL)
     {
@@ -1058,17 +1208,6 @@ bool isValidSequence(region_sequence sequence1, region_sequence sequence2)
     return false;
 }
 
-Rect boundingRect(vector* v/* Point */)
-{
-    Mat m = getMatfromVector(v);
-    return depth(m) <= 0 ? maskBoundingRect(&m) : pointSetBoundingRect(m);
-}
-
-int norm(int x, int y)
-{
-    return sqrt(x*x + y*y);
-}
-
 bool vector_contains(vector* v, Point a) //Checks specifically for the struct Point
 {
     for(int i = 0; i < vector_size(v); i++)
@@ -1079,28 +1218,6 @@ bool vector_contains(vector* v, Point a) //Checks specifically for the struct Po
     }
     return false;
 }
-
-int sort_couples(const void* i, const void* j) 
-{
-    return (*(Vec3i*)i).val[0] - (*(Vec3i*)j).val[0]; 
-}
-
-
-void sort(vector* v /* Vec3i */)
-{
-    int len = vector_size(v);
-    Vec3i arr[len];
-
-    for(int i = 0; i < len; i++)
-        arr[i] = *(Vec3i*)vector_get(v, i);
-
-    vector_init(v);
-    qsort(arr, len, sizeof(Vec3i), sort_couples);
-
-    for(int i = 0; i < len; i++)
-        vector_add(v, &arr[i]);
-}
-
 
 void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, vector** out_groups /* Point */, vector* out_boxes /* Rect */, bool do_feedback_loop)
 {
@@ -1247,7 +1364,7 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
         if(do_feedback_loop)
         {
             //Feedback loop of detected lines to region extraction ... tries to recover mismatches in the region decomposition step by extracting regions in the neighbourhood of a valid sequence and checking if they are consistent with its line estimates
-            ERFilterNM* er_filter = createERFilterNM1(loadDummyClassifier(),1,0.005f,0.3f,0.f,false);
+            ERFilterNM* er_filter = createERFilterNM1(loadDummyClassifier(),1,0.005f,0.3f,0.f,false, 0.1f, true);
             for(int i = 0; i < (int)vector_size(valid_sequences); i++)
             {
                 vector* bbox_points = malloc(sizeof(vector)); //Point
@@ -1641,16 +1758,6 @@ bool isValidTriplet(vector** regions/* ERStat */, region_pair pair1, region_pair
 }
 
 
-// Fit line from two points
-// out a0 is the intercept
-// out a1 is the slope
-void fitLine(Point p1, Point p2, float* a0, float* a1)
-{
-    *a1 = (float)(p2.y - p1.y) / (p2.x - p1.x);
-    *a0 = a1 * -1 * p1.x + p1.y;
-}
-
-
 // Fit line from three points using (heuristic) Least-Median of Squares
 // out a0 is the intercept
 // out a1 is the slope
@@ -1705,92 +1812,7 @@ float fitLineLMS(Point p1, Point p2, Point p3, float* a0, float* a1)
     return err;
 }
 
-// Fit a line_estimate to a group of 3 regions
-// out triplet->estimates is updated with the new line estimates
-bool fitLineEstimates(vector** regions/* ERStat */, region_triplet* triplet)
+void setThresholdDeta(ERFilterNM* filter, int thresholdDelta)
 {
-    vector* char_boxes = malloc(sizeof(vector));
-    vector_init(char_boxes);
-    vector_add(char_boxes, &((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect);
-    vector_add(char_boxes, &((*ERStat*)vector_get(regions[triplet->b[0]], triplet->b[1])).rect);
-    vector_add(char_boxes, &((*ERStat*)vector_get(regions[triplet->c[0]], triplet->c[1])).rect);
-    
-    triplet->estimates.x_min = min(min((Rect*)vector_get(char_boxes, 0)->x,(Rect*)vector_get(char_boxes, 1)->x), (Rect*)vector_get(char_boxes, 2)->x);
-    triplet->estimates.x_max = max(max((Rect*)vector_get(char_boxes, 0)->x + (Rect*)vector_get(char_boxes, 0)->width, (Rect*)vector_get(char_boxes, 1)->x + (Rect*)vector_get(char_boxes, 1)->width), (Rect*)vector_get(char_boxes, 2)->x + (Rect*)vector_get(char_boxes, 2)->width);
-    triplet->estimates.h_max = max(max((Rect*)vector_get(char_boxes, 0)->height, (Rect*)vector_get(char_boxes, 0)->height), (Rect*)vector_get(char_boxes, 0)->x);
-
-    // Fit one bottom line
-    float err = fitLineLMS(init_Point((Rect*)vector_get(char_boxes, 0)->x + (Rect*)vector_get(char_boxes, 0)->width, (Rect*)vector_get(char_boxes, 0)->y + (Rect*)vector_get(char_boxes, 0)->height),
-                           init_Point((Rect*)vector_get(char_boxes, 1)->x + (Rect*)vector_get(char_boxes, 1)->width, (Rect*)vector_get(char_boxes, 1)->y + (Rect*)vector_get(char_boxes, 1)->height),
-                           init_Point((Rect*)vector_get(char_boxes, 2)->x + (Rect*)vector_get(char_boxes, 2)->width, (Rect*)vector_get(char_boxes, 2)->y + (Rect*)vector_get(char_boxes, 2)->height), 
-                           &(triplet->estimates.bottom1_a0), &(triplet->estimates.bottom1_a1));
-
-    if ((triplet->estimates.bottom1_a0 == -1) && (triplet->estimates.bottom1_a1 == 0))
-        return false;
-
-    // Slope for all lines must be the same
-    triplet->estimates.bottom2_a1 = triplet->estimates.bottom1_a1;
-    triplet->estimates.top1_a1    = triplet->estimates.bottom1_a1;
-    triplet->estimates.top2_a1    = triplet->estimates.bottom1_a1;
-
-    if (abs(err) > (float)triplet->estimates.h_max/6)
-    {
-        // We need two different bottom lines
-        triplet->estimates.bottom2_a0 = triplet->estimates.bottom1_a0 + err;
-    }
-    else
-    {
-        // Second bottom line is the same
-        triplet->estimates.bottom2_a0 = triplet->estimates.bottom1_a0;
-    }
-
-    // Fit one top line within the two (Y)-closer coordinates
-    int d_12 = abs((Rect*)vector_get(char_boxes, 0)->y - (Rect*)vector_get(char_boxes, 1)->y);
-    int d_13 = abs((Rect*)vector_get(char_boxes, 0)->y - (Rect*)vector_get(char_boxes, 2)->y);
-    int d_23 = abs((Rect*)vector_get(char_boxes, 1)->y - (Rect*)vector_get(char_boxes, 2)->y);
-    if((d_12 < d_13) && (d_12 < d_23))
-    {
-        Point p = init_Point(((Rect*)vector_get(char_boxes, 0)->x + (Rect*)vector_get(char_boxes, 1)->x)/2,
-                        ((Rect*)vector_get(char_boxes, 0)->y + (Rect*)vector_get(char_boxes, 1)->y)/2);
-
-        triplet->estimates.top1_a0 = triplet->estimates.bottom1_a0 +
-                (p.y - (triplet->estimates.bottom1_a0+p.x*triplet->estimates.bottom1_a1));
-
-        p = init_Point((Rect*)vector_get(char_boxes, 2)->x, (Rect*)vector_get(char_boxes, 2)->y);
-        err = (p.y - (triplet->estimates.top1_a0+p.x*triplet->estimates.top1_a1));
-    }
-    else if(d_13 < d_23)
-    {
-        Point p = init_Point(((Rect*)vector_get(char_boxes, 0)->x + (Rect*)vector_get(char_boxes, 2)->x)/2,
-                        ((Rect*)vector_get(char_boxes, 0)->y + (Rect*)vector_get(char_boxes, 2)->y)/2);
-        triplet->estimates.top1_a0 = triplet->estimates.bottom1_a0 +
-                (p.y - (triplet->estimates.bottom1_a0+p.x*triplet->estimates.bottom1_a1));
-
-        p = init_Point((Rect*)vector_get(char_boxes, 1)->x, (Rect*)vector_get(char_boxes, 1)->y);
-        err = (p.y - (triplet->estimates.top1_a0+p.x*triplet->estimates.top1_a1));
-    }
-    else
-    {
-        Point p = init_Point(((Rect*)vector_get(char_boxes, 1)->x + (Rect*)vector_get(char_boxes, 2)->x)/2,
-                        ((Rect*)vector_get(char_boxes, 1)->y + (Rect*)vector_get(char_boxes, 2)->y)/2);
-
-        triplet->estimates.top1_a0 = triplet->estimates.bottom1_a0 +
-                (p.y - (triplet->estimates.bottom1_a0+p.x*triplet->estimates.bottom1_a1));
-
-        p = init_Point((Rect*)vector_get(char_boxes, 0)->x, (Rect*)vector_get(char_boxes, 0)->y);
-        err = (p.y - (triplet->estimates.top1_a0+p.x*triplet->estimates.top1_a1));
-    }
-
-    if (abs(err) > (float)triplet->estimates.h_max/6)
-    {
-        // We need two different top lines
-        triplet->estimates.top2_a0 = triplet->estimates.top1_a0 + err;
-    }
-    else
-    {
-        // Second top line is the same
-        triplet->estimates.top2_a0 = triplet->estimates.top1_a0;
-    }
-
-    return true;
+    filter->thresholdDelta = thresholdDelta;
 }
