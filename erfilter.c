@@ -132,13 +132,18 @@ void setMinProbabilityDiff(ERFilterNM* filter, float _minProbabilityDiff)
     filter->minProbabilityDiff = _minProbabilityDiff;
 }
 
+void setThresholdDeta(ERFilterNM* filter, int thresholdDelta)
+{
+    filter->thresholdDelta = thresholdDelta;
+}
+
 /*!
     Compute the different channels to be processed independently in the N&M algorithm
     Neumann L., Matas J.: Real-Time Scene Text Localization and Recognition, CVPR 2012
 */
 void computeNMChannels(Mat src, vector* _channels/* Mat */)
 {
-    if(empty(src)) {
+    if(src.data == 0 || src.rows*src.cols == 0) {
         for(int i = 0; i < vector_size(_channels); i++)
         {
             Mat* m = (Mat*)vector_get(_channels, i);
@@ -149,37 +154,37 @@ void computeNMChannels(Mat src, vector* _channels/* Mat */)
         return;
     }
 
-    assert(type(src) == CV_8UC3); //src.flags = 1124024336 apparently  
-    createVectorMat(_channels, 5, 1, depth(src), -1); //depth = CV_8U
+    assert(type(src) == 16);
+    createVectorMat(_channels, 5, 1, depth(src), -1);
 
     vector* channelsRGB = malloc(sizeof(vector)); //Mat
     vector_init(channelsRGB);
     split(src, channelsRGB);
-    for (int i = 0; i < channels(src)/*3 */; i++)
+    for (int i = 0; i < channels(src); i++)
     {
-        createVectorMat(_channels, src.rows, src.cols, CV_8UC1, i);
+        createVectorMat(_channels, src.rows, src.cols, 0, i);
         Mat channel = *(Mat*)vector_get(_channels, i);
         copyTo(*(Mat*)vector_get(channelsRGB, i), &channel);
     }
 
     Mat hls;
-    cvtColor(src, &hls, COLOR_RGB2HLS/*53*/);
+    cvtColor(src, &hls, 1);
     vector* channelsHLS = malloc(sizeof(vector));
     vector_init(channelsHLS);
     split(hls, channelsHLS);
 
-    createVectorMat(_channels, src.rows, src.cols, CV_8UC1, 3);
+    createVectorMat(_channels, src.rows, src.cols, 0, 3);
     Mat* channelL = (Mat*)vector_get(_channels, 3);
     copyTo(*(Mat*)vector_get(channelsHLS, 1), channelL);
 
     Mat grey;
-    cvtColor(src, &grey, COLOR_RGB2GRAY/*7*/);
+    cvtColor(src, &grey, 0);
     Mat gradient_magnitude;
-    create(&gradient_magnitude, grey.rows, grey.cols, 5/*CV_32FC1*/);
-    get_gradient_magnitude(grey, gradient_magnitude);
-    convertTo(gradient_magnitude, &gradient_magnitude, CV_8UC1, 1, 0, CVT32F8U);
+    create(&gradient_magnitude, grey.rows, grey.cols, 5);
+    get_gradient_magnitude(&grey, &gradient_magnitude);
+    convertTo(gradient_magnitude, &gradient_magnitude, 0, 1, 0, 1);
 
-    createVectorMat(_channels, src.rows, src.cols, CV_8UC1, 4);
+    createVectorMat(_channels, src.rows, src.cols, 0, 4);
     Mat* channelGrad = (Mat*)vector_get(_channels, 4);
     copyTo(gradient_magnitude, channelGrad);
 }
@@ -323,7 +328,7 @@ ERFilterNM* createERFilterNM2(ERClassifierNM* erc, float minProbability)
 void run(ERFilterNM* filter, Mat m, vector* _regions)
 {
 	filter->regions = _regions;
-    zeros(&(filter->region_mask), m.rows+2, m.cols+2, CV_8UC1);
+    zeros(&(filter->region_mask), m.rows+2, m.cols+2, 0);
 	
 	// if regions vector is empty we must extract the entire component tree
 	if(!vector_size(filter->regions))
@@ -361,7 +366,7 @@ void er_tree_extract(ERFilterNM* filter, Mat src)
 	if(filter->thresholdDelta > 1)
 	{
         divide_op(&src, filter->thresholdDelta);
-		minus_op(&src, filter->thresholdDelta);
+		minus_op(&src, 1, filter->thresholdDelta);
 	}
 	const unsigned char* image_data = src.data;
     int width = src.cols, height = src.rows;
@@ -423,7 +428,7 @@ void er_tree_extract(ERFilterNM* filter, Mat src)
         // push a component with current level in the component stack
         if(push_new_component)
         {
-        	ERStat* ers;
+        	ERStat* ers = malloc(sizeof(ERStat));
         	init_ERStat(ers, current_level, current_pixel, x, y);
         	vector_add(er_stack, &ers);
         }
@@ -751,26 +756,26 @@ void er_merge(ERFilterNM* filter, ERStat* parent, ERStat* child)
     {
         if (i-child->rect.y < vector_size(child->crossings));
         {
-            add_val = *(int*)vector_get(child->crossings, i-child->rect.y)
-            vector_add(parent->crossings, &add_val);
+            int add_val_ = *(int*)vector_get(child->crossings, i-child->rect.y)
+            vector_add(parent->crossings, &add_val_);
         }
         else
         {
-        	add_val = 0;
-            vector_addfront(parent->crossings, &add_val);
+        	int add_val_ = 0;
+            vector_addfront(parent->crossings, &add_val_);
         }
     }
 
     for(int i = br(parent->rect).y; i < child->rect.y; i++)
     {
-        add_val = 0;
-    	vector_add(parent->crossings, &add_val);
+        int add_val_1 = 0;
+    	vector_add(parent->crossings, &add_val_1);
     }
 
     for(int i = max(br(parent->rect).y, child->rect.y); i <= br(child->rect).y-1; i++)
     {
-        add_val = *(int*)vector_get(child->crossings, i-child->rect.y)
-    	vector_add(parent_crossings, &add_val);
+        int add_val_2 = *(int*)vector_get(child->crossings, i-child->rect.y)
+    	vector_add(parent_crossings, &add_val_2);
     }
 
     parent->euler += child->euler;
@@ -793,12 +798,12 @@ void er_merge(ERFilterNM* filter, ERStat* parent, ERStat* child)
 
     vector m_crossings;
     vector_init(&m_crossings);
-    add_val = *(int*)vector_get(child->crossings, child->rect.height/6);
-    vector_add(&m_crossings, &add_val);
-    add_val = *(int *)vector_get(child->crossings, 3*child->rect.height/6);
-    vector_add(&m_crossings, &add_val);
-    add_val = *(int *)vector_get(child->crossings, 5*child->rect.height/6)
-    vector_add(&m_crossings, &add_val);
+    int add_val_3 = *(int*)vector_get(child->crossings, child->rect.height/6);
+    vector_add(&m_crossings, &add_val_3);
+    int add_val_4 = *(int*)vector_get(child->crossings, 3*child->rect.height/6);
+    vector_add(&m_crossings, &add_val_4);
+    int add_val_5 = *(int*)vector_get(child->crossings, 5*child->rect.height/6)
+    vector_add(&m_crossings, &add_val_5);
     sort_3ints(&m_crossings);
     child->med_crossings = (float)(*(int *)vector_get(&m_crossings, 1));
 
@@ -866,7 +871,7 @@ void er_merge(ERFilterNM* filter, ERStat* parent, ERStat* child)
 // copy extracted regions into the output vector
 ERStat* er_save(ERFilterNM* filter, ERStat *er, ERStat *parent, ERStat *prev)
 {
-	vector_add(filter->regions, *er);
+	vector_add(filter->regions, er);
 
 	((ERStat*)vector_back(regions))->parent = parent;
 	if(prev != NULL)
@@ -922,14 +927,14 @@ ERStat* er_save(ERFilterNM* filter, ERStat *er, ERStat *parent, ERStat *prev)
 // recursively walk the tree and filter (remove) regions using the callback classifier
 ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *parent, ERStat *prev)
 {
-	assert(type(*src) == CV_8UC1);
+	assert(type(*src) == 0);
 
 	//Fill the region and calculate 2nd stage features
     Mat region = createusingRect(filter->region_mask, createRect(tl(stat->rect), init_Point(br(stat->rect).x + 2, br(stat->rect).y + 2)));
     createusingScalar(&region, init_Scalar(0, 0, 0, 0));
 
     int newMaskVal = 255;
-    int flags = 4 + (newMaskVal << 8) + FLOODFILL_FIXED_RANGE + FLOODFILL_MASK_ONLY;
+    int flags = 4 + (newMaskVal << 8) + (1<<16) + (1<<17);
     Rect rect;
 
     *src = createusingRect(*src, stat->rect);
@@ -938,16 +943,17 @@ ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *paren
 
     region = createusingRect(region, init_Rect(1, 1, rect.width, rect.height));
 
-    vector** contours;    /* Point */ //uninitialized, take care of this.
+    vector* contours = malloc(sizeof(vector));    /* vector<Point> */
+    vector_init(contours);
     vector* contour_poly = malloc(sizeof(vector)); /* Point */
     vector_init(contour_poly);
     vector* hierarchy = malloc(sizeof(vector));    /* Scalar */
     vector_init(hierarchy);
 
-    findContours(region, contours, hierarchy, RETR_TREE, CHAIN_APPROX_NONE, init_Point(0, 0));
+    findContours(region, contours, hierarchy, 3, 1, init_Point(0, 0));
     //TODO check epsilon parameter of approxPolyDP (set empirically) : we want more precision
     //     if the region is very small because otherwise we'll loose all the convexities
-    approxPolyDP(Mat(contours[0]), contour_poly, (float)min(rect.width,rect.height)/17, true);
+    approxPolyDP(createusingPoint(vector_get(contours, 0)), contour_poly, (float)min(rect.width,rect.height)/17, true);
 
     bool was_convex = false;
     int  num_inflexion_points = 0;
@@ -983,21 +989,14 @@ ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *paren
         was_convex = (angle > CV_PI);
     }
 
-    Mat* m;
-    m->flags = MAGIC_VAL;
-    m->rows = m->cols = 0;
-    m->data = 0;
-    m->datastart = 0;
-    m->dataend = 0;
-    m->datalimit = 0;
-    m->step = 0;
-    floodFill(&region,  m, init_Point(0,0), init_Scalar(255, 0, 0, 0), 0, init_Scalar(0, 0, 0, 0), init_Scalar(0, 0, 0, 0), 4);
+    Mat m = emptyMat();
+    floodFill(&region, &m, init_Point(0,0), init_Scalar(255, 0, 0, 0), 0, init_Scalar(0, 0, 0, 0), init_Scalar(0, 0, 0, 0), 4);
     int holes_area = region.cols*region.rows-countNonZero(region);
 
     int hull_area = 0;
     
     {
-        vector* hull = malloc(sizeof(vector));
+        vector* hull = malloc(sizeof(vector));//Point
         vector_init(hull);
         convexHull(contours[0], hull, false);
         hull_area = (int)contourArea(hull);
@@ -1022,7 +1021,7 @@ ERStat* er_tree_filter(ERFilterNM* filter, Mat* src, ERStat* stat, ERStat *paren
         (stat->parent == NULL))
     {
         filter->num_accepted_regions++;
-        vector_add(filter->regions, *stat);
+        vector_add(filter->regions, stat);
         
         ((ERStat*)vector_back(regions))->parent = parent;
         ((ERStat*)vector_back(regions))->next   = NULL;
@@ -1127,67 +1126,6 @@ static void deleteERStatTree(ERStat* root)
 }
 
 
-// Calculates the distance between two line estimates defined as the largest
-// normalized vertical difference of their top/bottom lines at their boundary points
-// out float distance
-float distanceLinesEstimates(line_estimates a, line_estimates b)
-{
-    assert(a.h_max != 0 && b.h_max != 0);
-
-    if(equal_line_estimates(a, b))
-        return 0.0f;
-
-    int x_min = min(a.x_min, b.x_min);
-    int x_max = max(a.x_max, b.x_max);
-    int h_max = max(a.h_max, b.h_max);
-
-    float dist_top = FLT_MAX, dist_bottom = FLT_MAX;
-    for(int i = 0; i < 2; i++)
-    {
-        float top_a0, top_a1, bottom_a0, bottom_a1;
-        if(i == 0)
-        {
-            top_a0 = a.top1_a0;
-            top_a1 = a.top1_a1;
-            bottom_a0 = a.bottom1_a0;
-            bottom_a1 = a.bottom1_a1;
-        }
-        else
-        {
-            top_a0 = a.top2_a0;
-            top_a1 = a.top2_a1;
-            bottom_a0 = a.bottom2_a0;
-            bottom_a1 = a.bottom2_a1;
-        }
-
-        for(int j = 0; j < 2; j++)
-        {
-            float top_b0, top_b1, bottom_b0, bottom_b1;
-            if (j==0)
-            {
-                top_b0 = b.top1_a0;
-                top_b1 = b.top1_a1;
-                bottom_b0 = b.bottom1_a0;
-                bottom_b1 = b.bottom1_a1;
-            } 
-
-            else
-            {
-                top_b0 = b.top2_a0;
-                top_b1 = b.top2_a1;
-                bottom_b0 = b.bottom2_a0;
-                bottom_b1 = b.bottom2_a1;
-            }
-
-            float x_min_dist = abs((top_a0+x_min*top_a1)-(top_b0+x_min*top_b1));
-            float x_max_dist = abs((top_a0+x_max*top_a1)-(top_b0+x_max*top_b1));
-            dist_top = min(dist_top, max(x_min_dist,x_max_dist)/h_max);
-        }
-    }
-    return max(dist_top, dist_bottom);
-}
-
-
 // Evaluates if a set of more than 3 regions is valid or not
 // using thresholds learned on training (defined above)
 bool isValidSequence(region_sequence sequence1, region_sequence sequence2)
@@ -1219,7 +1157,7 @@ bool vector_contains(vector* v, Point a) //Checks specifically for the struct Po
     return false;
 }
 
-void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, vector** out_groups /* Point */, vector* out_boxes /* Rect */, bool do_feedback_loop)
+void erGroupingNM(Mat img, vector* src/* Mat */, vector* regions /* vector<ERStat> */, vector* out_groups /* vector<Point> */, vector* out_boxes /* Rect */, bool do_feedback_loop)
 {
     assert(!vector_empty(src));
     size_t num_channels = vector_size(src);
@@ -1230,7 +1168,7 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
         //store indices to regions in a single vector
         vector* all_regions = malloc(sizeof(vector)); //Point
         vector_init(all_regions);
-        for(size_t r = 0; r < vector_size(regions[c]); r++)
+        for(size_t r = 0; r < vector_size(vector_get(regions, c)); r++)
         {
             Point push_pt = init_Point((int)c, (int)r)
             vector_add(all_regions, &push_pt);
@@ -1240,10 +1178,10 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
         vector_init(valid_pairs);
 
         Mat* mask = malloc(sizeof(mat));
-        zeros(mask, img.rows+2, img.cols+2, CV_8UC1);
+        zeros(mask, img.rows+2, img.cols+2, 0);
         Mat grey, lab;
-        cvtColor(img, lab, COLOR_RGB2Lab);
-        cvtColor(img, &grey, COLOR_RGB2GRAY);
+        cvtColor(img, lab, 2);
+        cvtColor(img, &grey, 0);
 
         //check every possible pair of regions
         for(size_t i = 0; i < vector_size(all_regions); i++)
@@ -1258,27 +1196,34 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                 if (isValidPair(grey, lab, mask, src, regions, *(Point*)vector_get(all_regions, i), *(Point*)vector_get(all_regions, j)));
                 {
                     bool isCycle = false;
-                    for(size_t k = 0; k < vector_size(i_siblings_); k++)
+                    for(size_t k = 0; k < vector_size(i_siblings); k++)
                     {
                         if(isValidPair(grey, lab, mask, src, regions, *(Point*)vector_get(all_regions, j), *(Point*)vector_get(all_regions, *(int*)vector_get(i_siblings, k))))
                         {
                             // choose as sibling the closer and not the first that was "paired" with i
-                            Point i_center = init_Point((ERStat*)vector_get(regions[(Point*)vector_get(all_regions, i)->x], ((Point*)vector_get(all_regions, i))->y)->rect.x +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, i)->x], ((Point*)vector_get(all_regions, i))->y)->rect.width/2,
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, i)->x], ((Point*)vector_get(all_regions, i))->y)->rect.y +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, i)->x], ((Point*)vector_get(all_regions, i))->y)->rect.height/2);
-                            Point j_center = init_Point((ERStat*)vector_get(regions[(Point*)vector_get(all_regions, j)->x], ((Point*)vector_get(all_regions, j))->y)->rect.x +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, j)->x], ((Point*)vector_get(all_regions, j))->y)->rect.width/2,
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, j)->x], ((Point*)vector_get(all_regions, j))->y)->rect.y +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, j)->x], ((Point*)vector_get(all_regions, j))->y)->rect.height/2);
-                            Point k_center = init_Point( (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, k)->x], ((Point*)vector_get(all_regions, k))->y)->rect.x +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, k)->x], ((Point*)vector_get(all_regions, k))->y)->rect.width/2,
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, k)->x], ((Point*)vector_get(all_regions, k))->y)->rect.y +
-                                                (ERStat*)vector_get(regions[(Point*)vector_get(all_regions, k)->x], ((Point*)vector_get(all_regions, k))->y)->rect.height/2);
+                            int x_add = ((Point*)vector_get(all_regions, i))->x;
+                            int y_add = ((Point*)vector_get(all_regions, i))->y;
+                            Point i_center = init_Point(((ERStat*)vector_get(vector_get(regions, x), y))->rect.x +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.width/2,
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.y +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.height/2);
+                            x_add = ((Point*)vector_get(all_regions, j))->x;
+                            y_add = ((Point*)vector_get(all_regions, i))->y;
+                            Point j_center = init_Point(((ERStat*)vector_get(vector_get(regions, x), y))->rect.x +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.width/2,
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.y +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.height/2);
+                            x_add = ((Point*)vector_get(all_regions, vector_get(i_siblings, k)))->x;
+                            y_add = ((Point*)vector_get(all_regions, vector_get(i_siblings, k)))->y;
+                            Point k_center = init_Point(((ERStat*)vector_get(vector_get(regions, x), y))->rect.x +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.width/2,
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.y +
+                                                        ((ERStat*)vector_get(vector_get(regions, x), y))->rect.height/2);
 
                             if(norm(i_center.x-j_center.x, i_center.y-j_center.y) < norm(i_center.x-k_center.x, i_center.y-k_center.y))
                             {
-                                vector_set(valid_pairs, first_i_sibling_idx+k, &init_region_pair(*(Point*)vector_get(all_regions, i), *(Point*)vector_get(all_regions, j)));
+                                region_pair temp_rp = init_region_pair(*(Point*)vector_get(all_regions, i), *(Point*)vector_get(all_regions, j));
+                                vector_set(valid_pairs, first_i_sibling_idx+k, &temp_rp);
                                 vector_set(i_siblings, k, &((int)j));
                             }
                             isCycle = true;
@@ -1287,7 +1232,8 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                     }
                     if(!isCycle)
                     {
-                        vector_add(valid_pairs, &init_region_pair(*(Point*)vector_get(all_regions, i), *(Point*)vector_get(all_regions, j)));
+                        region_pair temp_rp = init_region_pair(*(Point*)vector_get(all_regions, i), *(Point*)vector_get(all_regions, j));
+                        vector_add(valid_pairs, &temp_rp);
                         vector_add(i_siblings, &j);
                     }
                 }
@@ -1297,15 +1243,16 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
         vector* valid_triplets = malloc(sizeof(vector));// region_triplet
         vector_init(valid_triplets);
 
+        region_triplet valid_triplet[vector_size(valid_pairs)][vector_size(valid_pairs)];
         //check every possible triplet of regions
         for(size_t i=0; i < vector_size(valid_pairs); i++)
         {
             for(size_t j=i+1; j < vector_size(valid_pairs); j++)
             {
                 // check collinearity rules
-                region_triplet valid_triplet = init_region_triplet(init_Point(0,0),init_Point(0,0), init_Point(0,0));
+                valid_triplet[i][j] = init_region_triplet(init_Point(0,0),init_Point(0,0), init_Point(0,0));
                 if (isValidTriplet(regions, *(region_pair*)vector_get(valid_pairs, i) , *(region_pair*)vector_get(valid_pairs, j), &valid_triplet))
-                    vector_add(valid_triplets, &valid_triplet);
+                    vector_add(valid_triplets, &valid_triplet[i][j]);
             }
         }
 
@@ -1314,9 +1261,11 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
         vector* pending_sequences = malloc(sizeof(vector)); //region_sequence
         vector_init(pending_sequences);
 
+        region_sequence temp_seq[vector_size(valid_triplets)];
         for(size_t i=0; i < vector_size(valid_triplets); i++)
         {
-            vector_add(pending_sequences, &Region_sequence((region_triplet*)vector_get(valid_triplets, i)));
+            temp_seq[i] = Region_sequence((region_triplet*)vector_get(valid_triplets, i));
+            vector_add(pending_sequences, &temp_seq[i]);
         }
 
         for(size_t i = 0; i < vector_size(pending_sequences); i++)
@@ -1370,14 +1319,21 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                 vector* bbox_points = malloc(sizeof(vector)); //Point
                 vector_init(bbox_points);
 
+                Point temp_pt[6*(vector_size((*(region_sequence)vector_get(valid_sequences, i))->triplets))];
                 for(size_t j = 0; j < vector_size((*(region_sequence)vector_get(valid_sequences, i))->triplets); j++)
                 {
-                    vector_add(bbox_points, &tl(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect));
-                    vector_add(bbox_points, &br(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect));
-                    vector_add(bbox_points, &tl(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect));
-                    vector_add(bbox_points, &br(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect));
-                    vector_add(bbox_points, &tl(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect));
-                    vector_add(bbox_points, &br(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect));
+                    temp_pt[0*j] = tl(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect);
+                    vector_add(bbox_points, &temp_pt[0*j]);
+                    temp_pt[1*j] = br(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect);
+                    vector_add(bbox_points, &temp_pt[1*j]);
+                    temp_pt[2*j] = tl(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect);
+                    vector_add(bbox_points, &temp_pt[2*j]);
+                    temp_pt[3*j] = br(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect);
+                    vector_add(bbox_points, &temp_pt[3*j]);
+                    temp_pt[4*j] = tl(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect);
+                    vector_add(bbox_points, &temp_pt[4*j]);
+                    temp_pt[5*j] = br(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect);
+                    vector_add(bbox_points, &temp_pt[5*j]);
                 }
 
                 Rect rect = boundingRect(bbox_points);
@@ -1402,17 +1358,17 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                     bool overlaps = false;
                     for(size_t j = 0; j < vector_size((region_triplet*)vector_size(valid_sequences, i)->triplets); j++)
                     {
-                        Rect minarearect_a = ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect;
-                        Rect minarearect_b = ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect
-                        Rect minarearect_c = ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect
+                        Rect minarearect_a = ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect;
+                        Rect minarearect_b = ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect
+                        Rect minarearect_c = ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect | ((ERStat*)vector_get(aux_regions, r))->rect
 
                         // Overlapping regions are not valid pair in any case
                         if(equalRects(minarearect_a, ((ERStat*)vector_get(aux_regions, r))->rect) || 
                            equalRects(minarearect_b, ((ERStat*)vector_get(aux_regions, r))->rect) ||
                            equalRects(minarearect_c, ((ERStat*)vector_get(aux_regions, r))->rect) ||
-                           equalRects(minarearect_a, ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect) ||
-                           equalRects(minarearect_b, ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect) ||
-                           equalRects(minarearect_c, ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect))
+                           equalRects(minarearect_a, ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect) ||
+                           equalRects(minarearect_b, ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect) ||
+                           equalRects(minarearect_c, ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect))
                         {
                             overlaps = true;
                             break;
@@ -1424,32 +1380,32 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                         vector *left_couples = malloc(sizeof(vector)), *right_couples = malloc(sizeof(vector)); //Vec3i
                         vector_init(left_couples);
                         vector_init(right_couples);
-                        vector_add(regions[c], ((ERStat*)vector_get(aux_regions, r)));
+                        vector_add(vector_get(regions, c), ((ERStat*)vector_get(aux_regions, r)));
                         for(size_t j=0; j < vector_size((region_triplet*)vector_get(valid_sequences, i)->triplets); j++)
                         {
-                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a, init_Point(((int)c,(int)(vector_size(regions[c]))-1))))
+                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a, init_Point(((int)c,(int)(vector_size(vector_get(regions, c)))-1))))
                             {
-                                if(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x)
-                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y));
+                                if(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x)
+                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y));
 
                                 else
-                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y));
+                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->a.y));
                             }
-                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b, init_Point(((int)c,(int)(vector_size(regions[c]))-1))))
+                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b, init_Point(((int)c,(int)(vector_size(vector_get(regions, c)))-1))))
                             {
-                                if(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x)
-                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y));
+                                if(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x))
+                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y));
 
                                 else
-                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y));
+                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->b.y));
                             }
-                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c, init_Point(((int)c,(int)(vector_size(regions[c]))-1))))
+                            if(isValidPair(grey, lab, mask, src, regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c, init_Point(((int)c,(int)(vector_size(vector_get(regions, c)))-1))))
                             {
-                                if(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x)
-                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y));
+                                if(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x > (ERStat*)vector_get(aux_regions, r)->rect.x)
+                                    vector_add(right_couples, vec3i(((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x - (ERStat*)vector_get(aux_regions, r)->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y));
 
                                 else
-                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(regions[((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x], ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y));
+                                    vector_add(left_couples, vec3i((ERStat*)vector_get(aux_regions, r)->rect.x - ((ERStat*)vector_get(vector_get(regions, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x), ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y))->rect.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.x, ((region_triplet*)vector_get(((region_sequence*)vector_get(valid_sequences, i))->triplets, j))->c.y));
                             }                        
                         }
 
@@ -1460,8 +1416,8 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                         {
                             sort(left_couples);
                             sort(right_couples);
-                            region_pair pair1 = init_region_pair(init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]), init_Point(c, vector_size(regions[c])-1));
-                            region_pair pair2 = init_region_pair(init_Point(c, vector_size(regions[c])-1), init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]));
+                            region_pair pair1 = init_region_pair(init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]), init_Point(c, vector_size(vector_get(regions, c))-1));
+                            region_pair pair2 = init_region_pair(init_Point(c, vector_size(vector_get(regions, c))-1), init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]));
                             region_triplet triplet = init_region_triplet(init_Point(0, 0), init_Point(0, 0), init_Point(0, 0));
                             
                             if(isValidTriplet(regions, pair1, pair2, &triplet))
@@ -1470,7 +1426,7 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                         else if(vector_size(right_couples) >= 2)
                         {
                             sort(right_couples);
-                            region_pair pair1 = init_region_pair(init_Point(c, vector_size(regions[c])-1), init_Point((Vec3i*)vector_get(right_couples, 0)->val[1], (Vec3i*)vector_get(right_couples, 0)->val[2]));
+                            region_pair pair1 = init_region_pair(init_Point(c, vector_size(vector_get(regions, c))-1), init_Point((Vec3i*)vector_get(right_couples, 0)->val[1], (Vec3i*)vector_get(right_couples, 0)->val[2]));
                             region_pair pair2 = init_region_pair(init_Point((Vec3i*)vector_get(right_couples, 0)->val[1], (Vec3i*)vector_get(right_couples, 0)->val[2]), init_Point(init_Point((Vec3i*)vector_get(right_couples, 1)->val[1], (Vec3i*)vector_get(right_couples, 1)->val[2])))
                             region_triplet triplet = init_region_triplet(init_Point(0, 0), init_Point(0, 0), init_Point(0, 0));
                             
@@ -1482,7 +1438,7 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
                         {
                             sort(left_couples);
                             region_pair pair1 = init_region_pair(init_Point((Vec3i*)vector_get(left_couples, 1)->val[1], (Vec3i*)vector_get(left_couples, 1)->val[2]), init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]));
-                            region_pair pair2 = init_region_pair(init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]), init_Point(c, vector_size(regions[c])-1));
+                            region_pair pair2 = init_region_pair(init_Point((Vec3i*)vector_get(left_couples, 0)->val[1], (Vec3i*)vector_get(left_couples, 0)->val[2]), init_Point(c, vector_size(vector_get(regions, c))-1));
                             region_triplet triplet = init_region_triplet(init_Point(0, 0), init_Point(0, 0), init_Point(0, 0));
                             
                             if(isValidTriplet(regions, pair1, pair2, &triplet))
@@ -1506,7 +1462,7 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
             }
         }
 
-
+        Rect bounding_rect[vector_size(valid_sequences)];
         // Prepare the sequences for output
         for(size_t i = 0; i < vector_size(valid_sequences); i++)
         {
@@ -1531,12 +1487,15 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
 
                 for(size_t k=prev_size; k < vector_size(group_regions); k++)
                 {
-                    vector_add(bbox_points, &tl(((ERStat*)vector_get(regions[((Point*)vector_get(group_regions, k))->x], ((Point*)vector_get(group_regions, k))->y))->rect));
-                    vector_add(bbox_points, &br(((ERStat*)vector_get(regions[((Point*)vector_get(group_regions, k))->x], ((Point*)vector_get(group_regions, k))->y))->rect));
+                    Point temp_pt = tl(((ERStat*)vector_get(vector_get(regions, ((Point*)vector_get(group_regions, k))->x), ((Point*)vector_get(group_regions, k))->y))->rect);
+                    vector_add(bbox_points, &temp_pt);
+                    temp_pt = br((ERStat*)vector_get(regions, (Point*)vector_get(group_regions, k)->x), ((Point*)vector_get(group_regions, k))->y->rect);
+                    vector_add(bbox_points, &temp_pt);
                 }
             }
             vector_add(out_groups, group_regions);
-            vector_add(out_boxes, boundingRect(bbox_points));
+            bounding_rect[i] = boundingRect(bbox_points);
+            vector_add(out_boxes, &bounding_rect[i]);
         }
 
     }
@@ -1544,24 +1503,24 @@ void erGroupingNM(Mat img, vector* src/* Mat */, vector** regions /* ERStat */, 
 
 // Evaluates if a pair of regions is valid or not
 // using thresholds learned on training (defined above)
-bool isValidPair(Mat grey, Mat lab, Mat mask, vector* channels, vector** regions, Point idx1, Point idx2)
+bool isValidPair(Mat grey, Mat lab, Mat mask, vector* channels, vector* regions, Point idx1, Point idx2)
 {
-    Rect minarearect = performOR(&((*(ERStat *)vector_get(regions[idx1.x], idx1[1])).rect) | &((*(ERStat *)vector_get(regions[idx2.x], idx2.y)).rect));
+    Rect minarearect = performOR(&((*(ERStat *)vector_get(vector_get(regions, idx1.x), idx1[1])).rect) | &((*(ERStat*)vector_get(vector_get(regions, idx2.x), idx2.y)).rect));
 
     // Overlapping regions are not valid pair in any case
-    if(equalRects(minarearect, ((*(ERStat *)vector_get(regions[idx1.x], idx1.y)).rect)) || equalRects(minarearect, ((*(ERStat *)vector_get(regions[idx2.x], idx2.y)).rect)))
+    if(equalRects(minarearect, ((*(ERStat *)vector_get(vector_get(regions, idx1.x), idx1.y)).rect)) || equalRects(minarearect, ((*(ERStat*)vector_get(vector_get(regions, idx2.x), idx2.y)).rect)))
         return false;
 
     ERStat *i, *j;
-    if(((*(ERStat*)vector_get(regions[idx1.x], idx1.y)).rect).x < ((*(ERStat *)vector_get(regions[idx2.x], idx2.y)).rect).x )
+    if(((*(ERStat*)vector_get(vector_get(regions, idx1.x), idx1.y)).rect).x < ((*(ERStat *)vector_get(vector_get(regions, idx2.x), idx2.y)).rect).x )
     {
-        i = (ERStat*)vector_get(regions[idx1.x], idx1.y); //i = &regions[idx1[0]][idx1[1]];
-        j = (ERStat*)vector_get(regions[idx2.x], idx2.y);
+        i = (ERStat*)vector_get(vector_get(regions, idx1.x), idx1.y);
+        j = (ERStat*)vector_get(vector_get(regions, idx2.x), idx2.y);
     }
     else
     {
-        i = (ERStat*)vector_get(regions[idx2.x], idx2.y);
-        j = (ERStat*)vector_get(regions[idx1.x], idx1.y);
+        i = (ERStat*)vector_get(vector_get(regions, idx2.x), idx2.y);
+        j = (ERStat*)vector_get(vector_get(regions, idx1.x), idx1.y);
     }
 
     if(j->rect.x == i->rect.x)
@@ -1578,54 +1537,59 @@ bool isValidPair(Mat grey, Mat lab, Mat mask, vector* channels, vector** regions
     int avg_width = (i->rect.width + j->rect.width) / 2;
     float norm_distance = (float)(j->rect.x-(i->rect.x + i->rect.width))/avg_width;
 
-    if ((height_ratio   < PAIR_MIN_HEIGHT_RATIO) ||
-        (centroid_angle < PAIR_MIN_CENTROID_ANGLE) ||
-        (centroid_angle > PAIR_MAX_CENTROID_ANGLE) ||
-        (norm_distance  < PAIR_MIN_REGION_DIST) ||
-        (norm_distance  > PAIR_MAX_REGION_DIST))
+    if ((height_ratio   < 0.4) ||
+        (centroid_angle < -0.85) ||
+        (centroid_angle > 0.85) ||
+        (norm_distance  < -0.4) ||
+        (norm_distance  > 2.2))
         return false;
 
     if ((i->parent == NULL) || (j->parent == NULL)) // deprecate the root region
       return false;
 
-    i = (ERStat *)vector_get(regions[idx1.x], idx1.y);
-    j = (ERStat *)vector_get(regions[idx2.x], idx2.y);
+    i = (ERStat*)vector_get(vector_get(regions, idx1.x), idx1.y);
+    j = (ERStat*)vector_get(vector_get(regions, idx2.x), idx2.y);
 
     Mat region = createusingRect(mask, createRect(init_Point(i->rect.x, i->rect.y), init_Point(i->rect.x + i->rect.width + 2, i->rect.y + i->rect.height + 2)));
     createusingScalar(&region, init_Scalar(0, 0, 0, 0));
     int newMaskVal = 255;
-    int flags = 4 + (newMaskVal << 8) + FLOODFILL_FIXED_RANGE + FLOODFILL_MASK_ONLY;
+    int flags = 4 + (newMaskVal << 8) + (1<<16) + (1<<17);
 
-    floodFill(&createusingRect(*(Mat*)vector_get(channels, idx1[0]), i->rect),
-               &region, init_Point(i->pixel%grey.cols - i->rect.x, i->pixel/grey.cols - i->rect.y),
-               init_Scalar(255, 0, 0, 0), NULL, init_Scalar(i->level, 0, 0, 0), init_Scalar(0, 0, 0, 0), flags);
+    Mat temp = createusingRect(*(Mat*)vector_get(channels, idx1[0]), i->rect);
+    floodFill(&temp, &region, init_Point(i->pixel%grey.cols - i->rect.x, i->pixel/grey.cols - i->rect.y),
+               init_Scalar(255, 0, 0, 0), 0, init_Scalar(i->level, 0, 0, 0), init_Scalar(0, 0, 0, 0), flags);
     Mat rect_mask = createusingRect(mask, init_Rect(i->rect.x+1,i->rect.y+1,i->rect.width,i->rect.height));
 
     Scalar mean, std;
-    meanStdDev(&createusingRect(grey, i->rect), &mean, &std, &rect_mask);
+    Mat temp_1 = createusingRect(grey, i->rect)
+    meanStdDev(&temp_1, &mean, &std, &rect_mask);
     int grey_mean1 = (int)mean.val[0];
-    meanStdDev(&createusingRect(lab, i->rect), &mean, &std, &rect_mask);
+
+    Mat temp_2 = createusingRect(lab, i->rect)
+    meanStdDev(&temp_2, &mean, &std, &rect_mask);
     float a_mean1 = (float)mean.val[1];
     float b_mean1 = (float)mean.val[2];
 
     region = createusingRect(mask, createRect(init_Point(j->rect.x, j->rect.y), init_Point(j->rect.x + j->rect.width + 2, j->rect.y + j->rect.height + 2)));
     createusingScalar(&region, init_Scalar(0, 0, 0, 0));
 
-    floodFill(&createusingRect(*(Mat*)vector_get(channels, idx2[0]), j->rect),
-               &region, init_Point(j->pixel%grey.cols - j->rect.x, j->pixel/grey.cols - j->rect.y),
-               init_Scalar(255, 0, 0, 0), NULL, init_Scalar(j->level, 0, 0, 0), init_Scalar(0, 0, 0, 0), flags);
+    Mat temp_3 = createusingRect(*(Mat*)vector_get(channels, idx2[0]), j->rect);
+    floodFill(&temp_3, &region, init_Point(j->pixel%grey.cols - j->rect.x, j->pixel/grey.cols - j->rect.y),
+               init_Scalar(255, 0, 0, 0), 0, init_Scalar(j->level, 0, 0, 0), init_Scalar(0, 0, 0, 0), flags);
     rect_mask = createusingRect(mask, init_Rect(j->rect.x+1,j->rect.y+1,j->rect.width,j->rect.height));
 
-    meanStdDev(&createusingRect(grey, j->rect), &mean, &std, &rect_mask);
+    Mat temp_4 = createusingRect(grey, j->rect); 
+    meanStdDev(&temp_4, &mean, &std, &rect_mask);
     int grey_mean2 = (int)mean.val[0];
-    meanStdDev(&createusingRect(lab, i->rect), &mean, &std, &rect_mask);
+    Mat temp_5 = createusingRect(lab, i->rect); 
+    meanStdDev(&temp_5, &mean, &std, &rect_mask);
     float a_mean2 = (float)mean.val[1];
     float b_mean2 = (float)mean.val[2];
 
-    if(abs(grey_mean1-grey_mean2) > PAIR_MAX_INTENSITY_DIST)
+    if(abs(grey_mean1-grey_mean2) > 111)
       return false;
 
-    if(sqrt(pow(a_mean1-a_mean2,2)+pow(b_mean1-b_mean2,2)) > PAIR_MAX_AB_DIST)
+    if(sqrt(pow(a_mean1-a_mean2,2)+pow(b_mean1-b_mean2,2)) > 54)
       return false;
 
     return true;
@@ -1634,7 +1598,7 @@ bool isValidPair(Mat grey, Mat lab, Mat mask, vector* channels, vector** regions
 
 // Evaluates if a set of 3 regions is valid or not
 // using thresholds learned on training (defined above)
-bool isValidTriplet(vector** regions/* ERStat */, region_pair pair1, region_pair pair2, region_triplet* triplet/* output triplet */)
+bool isValidTriplet(vector* regions/* vector<ERStat> */, region_pair pair1, region_pair pair2, region_triplet* triplet/* output triplet */)
 {
     if(equalRegionPairs(pair1, pair2))
         return false;
@@ -1648,80 +1612,80 @@ bool isValidTriplet(vector** regions/* ERStat */, region_pair pair1, region_pair
          //fill the indices in the output triplet (sorted)
         if(pair1.a.x == pair2.a.x && pair1.a.y == pair2.a.y)
         {
-            if(((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.a.y)).rect.x))
                 return false;
 
-            if(((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x >= regions[pair1.a[0]][pair1.a[1]].rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x >= vector_get(vector_get(regions, pair1.a.x), pair1.a.y).rect.x))
                 return false;
 
-            triplet->a = ((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x <
-                         (*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x)? pair1.b : pair2.b;
+            triplet->a = ((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x <
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x) ? pair1.b : pair2.b;
             triplet->b = pair1.a;
-            triplet->c = ((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x >
-                         (*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x)? pair1.b : pair2.b;
+            triplet->c = ((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x >
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x) ? pair1.b : pair2.b;
         }
 
         else if(pair1.a.x == pair2.b.x && pair1.a.y == pair2.b.y)
         {
-            if(((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x))
                 return false;
 
-            if(((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x))
                 return false;
 
-            triplet->a = ((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x <
-                         (*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x)? pair1.b : pair2.a;
+            triplet->a = ((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x <
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x)? pair1.b : pair2.a;
             triplet->b = pair1.a;
-            triplet->c = ((*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x >
-                         (*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x)? pair1.b : pair2.a;
+            triplet->c = ((*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x >
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x)? pair1.b : pair2.a;
         }
 
         else if(pair1.b.x == pair2.a.x && pair1.b.y == pair2.a.y)
         {
-            if (((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x))
+            if (((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x))
                 return false;
 
-            if (((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x))
+            if (((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x))
                 return false;
 
-            triplet->a = ((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x <
-                         (*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x)? pair1.a : pair2.b;
+            triplet->a = ((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x <
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x)? pair1.a : pair2.b;
             triplet->b = pair1.b;
-            triplet->c = ((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x <
-                         (*(ERStat*)vector_get(regions[pair2.b.x], pair2.b.y)).rect.x)? pair1.a : pair2.b;
+            triplet->c = ((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x <
+                          (*(ERStat*)vector_get(vector_get(regions, pair2.b.x), pair2.b.y)).rect.x)? pair1.a : pair2.b;
         }
 
         else if(pair1.b.x == pair2.b.x && pair1.b.y == pair2.b.y)
         {
-            if(((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x <= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x <= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x))
                 return false;
 
-            if(((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x) &&
-                    ((*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x >= (*(ERStat*)vector_get(regions[pair1.b.x], pair1.b.y)).rect.x))
+            if(((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x) &&
+                    ((*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x >= (*(ERStat*)vector_get(vector_get(regions, pair1.b.x), pair1.b.y)).rect.x))
                 return false;
 
-            triplet->a = ((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x <
-                         (*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x)? pair1.a : pair2.a;
+            triplet->a = ((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x <
+                         (*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x)? pair1.a : pair2.a;
             triplet->b = pair1.b;
-            triplet->c = ((*(ERStat*)vector_get(regions[pair1.a.x], pair1.a.y)).rect.x >
-                         (*(ERStat*)vector_get(regions[pair2.a.x], pair2.a.y)).rect.x)? pair1.a : pair2.a;
+            triplet->c = ((*(ERStat*)vector_get(vector_get(regions, pair1.a.x), pair1.a.y)).rect.x >
+                         (*(ERStat*)vector_get(vector_get(regions, pair2.a.x), pair2.a.y)).rect.x)? pair1.a : pair2.a;
         }
 
-        if((((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.x == ((*ERStat*)vector_get(regions[triplet->b[0]], triplet->b[1])).rect.x) &&
-             (((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.x == ((*ERStat*)vector_get(regions[triplet->c[0]], triplet->c[1])).rect.x))
+        if((((*ERStat*)vector_get(vector_get(regions, triplet->a.x), triplet->a.y)).rect.x == ((*ERStat*)vector_get(vector_get(regions, triplet->b.x), triplet->b.y)).rect.x) &&
+            (((*ERStat*)vector_get(vector_get(regions, triplet->a.x), triplet->a.y)).rect.x == ((*ERStat*)vector_get(vector_get(regions, triplet->c.x), triplet->c.y)).rect.x))
             return false;
 
-        if((((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.x + ((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.width
-                 == ((*ERStat*)vector_get(regions[triplet->b[0]], triplet->b[1])).rect.x + ((*ERStat*)vector_get(regions[triplet->b[0]], triplet->b[1])).rect.width) &&
-             (((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.x + ((*ERStat*)vector_get(regions[triplet->a[0]], triplet->a[1])).rect.width
-                 == ((*ERStat*)vector_get(regions[triplet->c[0]], triplet->c[1])).rect.x + ((*ERStat*)vector_get(regions[triplet->c[0]], triplet->c[1])).rect.width) )
+        if(((*ERStat*)vector_get(vector_get(regions, triplet->a.x, triplet->a.y)).rect.x + ((*ERStat*)vector_get(vector_get(regions, triplet->a.x), triplet->a.y)).rect.width
+                 == ((*ERStat*)vector_get(vector_get(regions, triplet->b.x), triplet->b.y)).rect.x + ((*ERStat*)vector_get(vector_get(regions, triplet->b.x), triplet->b.y)).rect.width) &&
+             (((*ERStat*)vector_get(vector_get(regions, triplet->a.x), triplet->a[1])).rect.x + ((*ERStat*)vector_get(vector_get(regions, triplet->a.x), triplet->a.y)).rect.width
+                 == ((*ERStat*)vector_get(vector_get(regions, triplet->c.x), triplet->c.y)).rect.x + ((*ERStat*)vector_get(vector_get(regions, triplet->c.x), triplet->c[1])).rect.width))
             return false;
 
 
@@ -1758,61 +1722,41 @@ bool isValidTriplet(vector** regions/* ERStat */, region_pair pair1, region_pair
 }
 
 
-// Fit line from three points using (heuristic) Least-Median of Squares
-// out a0 is the intercept
-// out a1 is the slope
-// returns the error of the single point that doesn't fit the line
-float fitLineLMS(Point p1, Point p2, Point p3, float* a0, float* a1)
+/**
+src                 input image
+regions_groups      resulting list of point sets
+groups_boxes        resulting bounding boxes 
+*/
+void detectRegions(Mat src, vector* regions_groups/* vector<Point> */, vector* groups_boxes/* Rect */)
 {
-    //if this is not changed the line is not valid
-    *a0 = -1;
-    *a1 = 0;
+    vector* channels = malloc(sizeof(vector));//Mat
+    vector_init(channels);
+    computeNMChannels(src, channels);
 
-    //Least-Median of Squares does not make sense with only three points
-    //because any line passing by two of them has median_error = 0
-    //So we'll take the one with smaller slope
-    float l_a0, l_a1, best_slope=FLT_MAX, err=0;
-
-    if(p1.x != p2.x)
+     // Extract channels to be processed individually
+    int cn = vector_size(channels);
+    // Append negative channels to detect ER- (bright regions over dark background)
+    Mat* dst = malloc(sizeof(Mat)*(cn-1));
+    for (int c = 0; c < cn-1; c++)
     {
-        fitLine(p1,p2,l_a0,l_a1);
-        if(abs(l_a1) < best_slope)
-        {
-            best_slope = abs(l_a1);
-            a0 = l_a0;
-            a1 = l_a1;
-            err = (p3.y - (a0+a1*p3.x));
-        }
+        subtract(*(Mat*)vector_get(channels, c), init_Scalar(255, 0, 0, 0), &dst[i])
+        vector_add(channels, &dst[i]);
     }
 
-    if(p1.x != p3.x)
+    // Create ERFilterNM objects with the 1st and 2nd stage default classifiers
+    ERFilterNM* er_filter1 = createERFilterNM1(loadClassifierNM("trained_classifierNM1.xml"),16,0.00015f,0.13f,0.2f,true,0.1f);
+    ERFilterNM* er_filter2 = createERFilterNM2(loadClassifierNM("trained_classifierNM2.xml"),0.5);
+
+    vector* regions = malloc(sizeof(vector));//vector<ERStat>
+    vector_init_n(regions, vector_size(channels));
+    // Apply the default cascade classifier to each independent channel (could be done in parallel)
+
+    for(int c=0; c < vector_size(channels); c++)
     {
-        fitLine(p1,p3,l_a0,l_a1);
-        if(abs(l_a1) < best_slope)
-        {
-            best_slope = abs(l_a1);
-            a0 = l_a0;
-            a1 = l_a1;
-            err = (p2.y - (a0+a1*p2.x));
-        }
+        run(er_filter1, *(Mat*)vector_get(channels, c), vector_get(regions, c));
+        run(er_filter2, *(Mat*)vector_get(channels, c), vector_get(regions, c));
     }
 
-    if(p2.x != p3.x)
-    {
-        fitLine(p2,p3,l_a0,l_a1);
-        if(abs(l_a1) < best_slope)
-        {
-            best_slope = abs(l_a1);
-            a0 = l_a0;
-            a1 = l_a1;
-            err = (p1.y - (a0+a1*p1.x));
-        }
-    }
-
-    return err;
-}
-
-void setThresholdDeta(ERFilterNM* filter, int thresholdDelta)
-{
-    filter->thresholdDelta = thresholdDelta;
+    // Detect character groups
+    erGroupingNM(src, channels, regions, regions_groups, groups_boxes, true);
 }
