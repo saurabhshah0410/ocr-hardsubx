@@ -46,6 +46,19 @@ This period was used to complete all the previous pending work and many minor st
 * Many structs and functions related to memory management implemented.
 * Cleaning up the code, identifying and rectifying the bugs in the code written so far.
 
+## Week 8, 9 & 10:
+All the machine learning related functionality was implemented in this period.
+* `load_ml`, `read_ml`, `predict_ml`: to load and obtain the results from the trained models `trained_classifierNM1.xml` and `trained_classifierNM2.xml`
+* The text detector is complete by now and in the following weeks, I plan to implement the text recognition part.
+
+## Week 11 & 12:
+This period was used to implement the functions required for recognizing text from the text containing regions using `tesseract-ocr`.
+* `run_ocr`: takes as input the binarized image and returns the text recognized from this image.
+*  some minor structs and other helper functions were implemented required for the completion of the text recognition part.
+
+## Week 13:
+The final week was used to make the required changes in the codebase of CCExtractor and integrate my code into theirs. Now I plan to make a final working demo and add proper usage instructions on how one should go about using the code I've written over the past 3 months.
+
  Note: 
  1. I'll be using the opencv naming conventions wherever possible as it would be easier for me to debug my code and it would also be helpful to any other developer who would work on this code/functionality.
  2. I'm reading the opencv source code and implementing only those structs and functions which be useful to my project and not just simply converting every line from their code.
