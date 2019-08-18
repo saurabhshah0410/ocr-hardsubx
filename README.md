@@ -58,10 +58,3 @@ This period was used to implement the functions required for recognizing text fr
 
 ## Week 13:
 The final week was used to make the required changes in the codebase of CCExtractor and integrate my code into the hard subtitle extraction module.
-
- Note: 
- 1. I'll be using the opencv naming conventions wherever possible as it would be easier for me to debug my code and it would also be helpful to any other developer who would work on this code/functionality.
- 2. I'm reading the opencv source code and implementing only those structs and functions which be useful to my project and not just simply converting every line from their code.
- 3. I've implemented a struct `vector` which is equivalent to `std::vector` as it is required very frequently for the implementation of many functions.
- 4. I'll be able to complete the text detection part by the end of 2nd phase evals. Any maybe another week after that to integrate Tesseract-OCR and complete the  text extraction part.
- 
