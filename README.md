@@ -1,4 +1,4 @@
-# ocr-hardsubx
+# Improve the OCR Subsystem | CCExtractor
 This code has been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
 
 ## Plan:
