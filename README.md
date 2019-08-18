@@ -1,5 +1,5 @@
 # Improve the OCR Subsystem | CCExtractor
-This code has been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
+The aim of the project was to extract hardcoded subtitles from input videos and generate SRT file containing the subs. This code has been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
 
 ## Plan:
 ![img-20180529-wa0000](https://user-images.githubusercontent.com/24202995/40630235-8448ab38-62ee-11e8-8f1e-3c5f6db6fd5e.jpg)
