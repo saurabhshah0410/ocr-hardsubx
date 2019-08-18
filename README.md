@@ -1,5 +1,5 @@
 # Improve the OCR Subsystem | CCExtractor
-The aim of the project was to extract hardcoded subtitles from input videos and generate SRT file containing the subs. This code has been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
+The aim of the project was to extract hardcoded subtitles from input videos and generate SRT file containing the subs. Some of the functions have been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
 
 ## Plan:
 ![img-20180529-wa0000](https://user-images.githubusercontent.com/24202995/40630235-8448ab38-62ee-11e8-8f1e-3c5f6db6fd5e.jpg)
@@ -57,7 +57,7 @@ This period was used to implement the functions required for recognizing text fr
 *  some minor structs and other helper functions were implemented required for the completion of the text recognition part.
 
 ## Week 13:
-The final week was used to make the required changes in the codebase of CCExtractor and integrate my code into theirs. Now I plan to make a final working demo and add proper usage instructions on how one should go about using the code I've written over the past 3 months.
+The final week was used to make the required changes in the codebase of CCExtractor and integrate my code into the hard subtitle extraction module.
 
  Note: 
  1. I'll be using the opencv naming conventions wherever possible as it would be easier for me to debug my code and it would also be helpful to any other developer who would work on this code/functionality.
