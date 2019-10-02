@@ -1,8 +1,13 @@
 # Improve the OCR Subsystem | CCExtractor
 The aim of the project was to extract hardcoded subtitles from input videos and generate SRT file containing the subs. Some of the functions have been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
 
-## Plan:
-![img-20180529-wa0000](https://user-images.githubusercontent.com/24202995/40630235-8448ab38-62ee-11e8-8f1e-3c5f6db6fd5e.jpg)
+## Compilation:
+CCExtractor can be compiled with HardsubX support as follows: `make ENABLE_HARDSUBX=yes`
+This needs to be run from the `ccextractor/linux` directory.
+
+## Usage:
+The `-hardsubx` flag needs to be specified to the ccextractor executable in order to enable burned-in subtitle extraction.
+Other options such as `ocr_mode`, `subcolor`, `conf_thresh` etc have been made optional as they'll now be self detected.
 
 ## Week 1:
 * Collecting different types of videos from the sample platform and other web sources like youtube etc to make a dataset of videos on which the code will be tested.
