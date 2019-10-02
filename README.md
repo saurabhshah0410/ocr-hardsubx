@@ -11,10 +11,13 @@ This needs to be run from the `ccextractor/linux` directory.
 
 ## Usage:
 The `-hardsubx` flag needs to be specified to the ccextractor executable in order to enable burned-in subtitle extraction.
-Other options such as `ocr_mode`, `subcolor`, `whiteness_thresh`` etc have been made optional as they'll now be self detected.
+Other options such as `ocr_mode`, `subcolor`, `whiteness_thresh` etc have been made optional as they'll now be self detected.
 
 A composite example command is as follows:-
 `ccextractor video.mp4 -hardsubx -subcolor white -detect_italics -whiteness_thresh 90 -conf_thresh 60`
+
+## User Documentation:
+Installation instructions can be found at [docs/HARDSUBX.txt](https://github.com/CCExtractor/ccextractor/blob/master/docs/HARDSUBX.txt). General usage instructions can be found in the help screen in [params.c](https://github.com/CCExtractor/ccextractor/blob/master/src/lib_ccx/params.c#L752).
 
 ## Week 1:
 * Collecting different types of videos from the sample platform and other web sources like youtube etc to make a dataset of videos on which the code will be tested.
