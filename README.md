@@ -1,5 +1,9 @@
 # Improve the OCR Subsystem | CCExtractor
-The aim of the project was to extract hardcoded subtitles from input videos and generate SRT file containing the subs. Some of the functions have been ported from [opencv](https://github.com/opencv/opencv)'s [scene text detection](https://docs.opencv.org/3.4/d4/d61/group__text.html) module which implements the [Neumann-Matas](http://cmp.felk.cvut.cz/~matas/papers/neumann-2012-rt_text-cvpr.pdf) text extraction system. I've mentioned the week wise distribution of my work below for the gsoc project
+The aim of the project was to extract hardcoded subtitles from input videos (real-time) and generate SRT file without asking the user to input the color, duration, ocr mode, italicized subs etc. Upon completion of the project, the following objectives have been achieved:
+
+* Feature to extract mutli-colored subtitles has been added, enhancing usage of CCExtractor to videos with multi-color subs
+* Existing captioning module is now independent of arbitrary input parameters like color, confidence, luminance making it user-friendly
+* Accuracy of the subs has been increased and noise has been reduced
 
 ## Compilation:
 CCExtractor can be compiled with HardsubX support as follows: `make ENABLE_HARDSUBX=yes`
@@ -7,7 +11,7 @@ This needs to be run from the `ccextractor/linux` directory.
 
 ## Usage:
 The `-hardsubx` flag needs to be specified to the ccextractor executable in order to enable burned-in subtitle extraction.
-Other options such as `ocr_mode`, `subcolor`, `conf_thresh` etc have been made optional as they'll now be self detected.
+Other options such as `ocr_mode`, `subcolor`, `whiteness_thresh`` etc have been made optional as they'll now be self detected.
 
 A composite example command is as follows:-
 `ccextractor video.mp4 -hardsubx -subcolor white -detect_italics -whiteness_thresh 90 -conf_thresh 60`
