@@ -1,9 +1,10 @@
 # Improve the OCR Subsystem | CCExtractor
 The aim of the project was to extract hardcoded subtitles from input videos (real-time) and generate SRT file without asking the user to input the color, duration, ocr mode, italicized subs etc. Upon completion of the project, the following objectives have been achieved:
 
-* Feature to extract mutli-colored subtitles has been added, enhancing usage of CCExtractor to videos with multi-color subs
-* Existing captioning module is now independent of arbitrary input parameters like color, confidence, luminance making it user-friendly
-* Accuracy of the subs has been increased and noise has been reduced
+* Feature to extract mutli-colored subtitles has been added, enhancing usage to videos with multi-color subtitles
+* Existing captioning module is now independent of input parameters like color, confidence, luminance making it user-friendly
+* Accuracy of the subs has been increased and noise generated previously has been significantly reduced
+* The start & end timestamps of the subs have been refined, bringing them close to the actual timings
 
 ## Compilation:
 CCExtractor can be compiled with HardsubX support as follows: `make ENABLE_HARDSUBX=yes`
